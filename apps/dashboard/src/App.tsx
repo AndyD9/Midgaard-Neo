@@ -104,8 +104,14 @@ export function App() {
   // Ce choix par défaut devient aussitôt une sélection explicite, inscrite dans
   // le fragment. Sans cela, il serait recalculé à chaque changement d'état : la
   // tâche qu'on regarde s'échapperait au moment même où on l'approuve.
+  //
+  // Le fragment est relu **au moment d'écrire** : entre le rendu qui a vu une
+  // vue vide et cet effet, l'humain a pu ouvrir les Profils. L'effet, avec sa
+  // vue périmée, le ramenait alors sur une tâche — la page des Profils
+  // disparaissait sous ses yeux. Vu en CI sous macOS (D16), une fois sur ce
+  // poste.
   useEffect(() => {
-    if (view.kind === 'none' && effectiveId) location.hash = `#/tasks/${effectiveId}`
+    if (view.kind === 'none' && effectiveId && viewFromHash().kind === 'none') location.hash = `#/tasks/${effectiveId}`
   }, [view.kind, effectiveId])
 
   const task = state.tasks.find((t) => t.id === effectiveId) ?? null
