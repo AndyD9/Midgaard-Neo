@@ -1,5 +1,5 @@
 /**
- * @file L'onglet « Navigateur » de l'atelier (Slice 7, étape 6) : ce que voit
+ * @file La lecture « navigateur » de la colonne de travail : ce que voit
  * l'agent, au fil de ses actions, et le moyen de l'arrêter.
  *
  * Quatre choix :
@@ -29,7 +29,7 @@ import { Button } from './ui/button'
 
 /**
  * Les tâches d'un arbre qui ont ouvert un navigateur, la plus récente en
- * dernier. Exporté pour que l'atelier sache s'il doit montrer l'onglet.
+ * dernier. Exporté pour que l'application sache si elle doit proposer cette lecture.
  */
 export function browserSources(tasks: readonly Task[], events: Record<string, TaskEvent[] | undefined>): BrowserSummary[] {
   return tasks

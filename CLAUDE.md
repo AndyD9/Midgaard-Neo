@@ -92,7 +92,7 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run test:developer` | ~45 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris, liste blanche et préfixes `exec` |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~1 min — base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base ; les serveurs MCP : outil non coché ou changé jamais reçu par le serveur, secret d'un serveur jamais persisté, exécutant créé borné, aucun serveur après `SIGKILL` (`npx playwright install chromium` au préalable) |
-| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur : direct, approbation, reconnexion, diff d'une tâche Developer, arbre d'un orchestrateur, atelier (conversation, terminal), onglet « Navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP et limites aux Profils, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs », vue terminal (`npm run build` et `npx playwright install chromium` au préalable) |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur : direct, approbation, reconnexion, diff d'une tâche Developer, arbre d'un orchestrateur, flux (conversation, sortie des commandes, approbation), lecture « navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP et limites aux Profils, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs » (`npm run build` et `npx playwright install chromium` au préalable) |
 | `npm run test:desktop` | ~2 min la première fois — les tests Rust de la coque (adresse du dashboard) |
 | `npm run test:live` | Payant, opt-in — un vrai modèle, coût comparé au solde du fournisseur ; s'abstient sans clé au coffre |
 | `npm run test:live-vision` | Payant, opt-in — une image envoyée à un modèle Venice qui la lit, coût relevé |
@@ -221,12 +221,13 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   une à une, ou annoncée à l'ouverture de la session (`planned_inputs`) et
   tapée une fois, identique à la lettre. Un clic n'est jamais approuvé, et la
   demande de session le dit.
-- **Le terminal du dashboard ne laisse passer que les couleurs**
-  (`apps/dashboard/src/lib/terminal.ts`). La sortie vient de commandes lancées
+- **Le flux du dashboard ne laisse passer aucune séquence d'échappement**
+  (`apps/dashboard/src/lib/stream.ts`, `plain`), couleur comprise : la teinte
+  d'une ligne vient d'une classe CSS. La sortie vient de commandes lancées
   dans un arbre écrit par l'agent ; une séquence qui efface, déplace le curseur
   ou réinitialise (`ESC c`) ferait voir à l'humain autre chose que ce qui s'est
-  passé, au moment où il approuve. La vue terminal (`lib/stream.ts`) retire
-  toute séquence d'échappement, couleur comprise.
+  passé, au moment où il approuve — sous le flux, justement. La ligne de
+  commande d'un `exec` est nettoyée comme sa sortie.
 - **L'API ne lit qu'un fichier d'une tâche : une image, sans jamais toucher
   `.git`** (`GET /api/tasks/:id/files/image`, `daemon/src/files.ts`). La règle
   vaut pour le chemin demandé **et** pour le chemin réel — un lien posé dans le

@@ -64,7 +64,7 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
   const [projectDir, setProjectDir] = useState(lastDir)
   const [context, setContext] = useState('')
   // Cochée par défaut : un orchestrateur lancé d'ici a un humain en face, et la
-  // conversation est ce que l'atelier montre (Slice 6).
+  // conversation est ce que le flux et son invite servent.
   const [conversation, setConversation] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)

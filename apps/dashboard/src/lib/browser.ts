@@ -1,5 +1,5 @@
 /**
- * @file Ce que l'atelier sait du navigateur d'une tâche (Slice 7, étape 6),
+ * @file Ce que le dashboard sait du navigateur d'une tâche (Slice 7, étape 6),
  * reconstitué depuis le journal. Fonctions pures, sans rendu.
  *
  * Le journal raconte la session — `browser.opened`, les appels d'outil

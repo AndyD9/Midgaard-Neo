@@ -54,16 +54,14 @@ Deux choses restent de l'origine, à connaître :
 Ce qui marche, vérifié par les suites de tests : l'orchestrateur et ses
 sous-tâches, les profils Researcher, Developer et Navigator, les approbations,
 les budgets et les coûts, le coffre des clés, les serveurs MCP des agents, le
-dashboard avec sa vue terminal.
+dashboard, une interface tout terminal (le flux d'un arbre de tâches, ses
+approbations, l'invite vers l'orchestrateur).
 
 Ce qui n'est **pas** fait :
 
 - **L'application autonome.** La fenêtre desktop est une coque Tauri construite
   depuis le clone : elle n'embarque ni Node, ni le daemon, ni le dashboard, et
   n'est pas signée.
-- **L'interface tout terminal.** Le dashboard garde la disposition de l'atelier
-  d'origine (liste des tâches, détails, chat, onglet navigateur, panneau
-  terminal) à côté de la vue terminal.
 
 ## Installer
 
@@ -180,7 +178,7 @@ directement. `npm run build` ne sert qu'au dashboard, que le daemon sert depuis
 
 ```text
 apps/
-  dashboard/      Interface React : tâches, chat, vue terminal, profils
+  dashboard/      Interface React tout terminal : tâches, flux, profils
   desktop/        Coque Tauri autour du dashboard
 packages/
   contracts/      Schémas et types partagés

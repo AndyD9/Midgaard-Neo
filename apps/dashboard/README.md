@@ -1,13 +1,14 @@
 # `@midgaard/dashboard`
 
-L'interface d'observation et de décision : la liste des tâches, l'inspecteur avec
-sa timeline temps réel, et les boutons d'approbation. C'est aussi l'endroit
-d'où l'on **lance** une tâche (Slice 5) — un orchestrateur en particulier.
-Depuis la Slice 6, un **atelier** : conversation avec l'orchestrateur, fil des
-échanges entre agents, terminal de sortie des commandes ; et une **vue
-terminal**, qui rejoue tout l'arbre d'une tâche en lignes.
+L'interface d'observation et de décision, **tout terminal** : la liste des
+tâches à gauche, et une seule colonne de travail qui montre **le flux** de la
+tâche choisie et de son arbre — une ligne par événement, la sortie des
+commandes au fil de l'eau, ce que l'utilisateur et l'orchestrateur se disent.
+Sous le flux, les demandes d'approbation de l'arbre, puis l'invite vers
+l'orchestrateur. C'est aussi l'endroit d'où l'on **lance** une tâche et où
+l'on règle profils, fournisseurs et serveurs MCP, par des formulaires.
 React + Vite + Tailwind, composants dans l'idiome shadcn/ui, recopiés dans
-`src/components/ui/` ; xterm.js pour le terminal.
+`src/components/ui/`. Un seul thème, sombre, à chasse fixe.
 
 ```bash
 npm run build            # compile dans apps/dashboard/dist, servi par le daemon
@@ -95,9 +96,9 @@ dans `src/lib/useHarness.ts`, avec le commentaire qui le signale.
 
 ## Lancer une tâche, régler un profil (Slice 5)
 
-Les routes, par le fragment d'URL : `#/tasks/<id>`, `#/new` (formulaire
-« Nouvelle tâche »), `#/agents` (profils) et `#/terminal/<id>` (la vue
-terminal, plus bas).
+Les routes, par le fragment d'URL : `#/tasks/<id>` (le flux de la tâche ;
+`#/terminal/<id>` en est un alias, qui ramène toujours au flux), `#/new`
+(formulaire « nouvelle tâche ») et `#/agents` (profils).
 
 - **Le formulaire ne propose que des profils actifs**, et nomme les autres avec
   leur motif (`lib/agents.ts`, la même règle que le daemon). Il montre les
@@ -145,7 +146,8 @@ Deux niveaux, et le second a longtemps manqué :
   provenance, plafond, motif d'un profil désactivé. Aucun rendu.
 - `npm run test:ui` (`tests/dashboard.ts`) ouvre un **vrai Chromium** sur un
   **vrai daemon** : l'application démarre, une tâche apparaît sans rechargement,
-  la progression avance seule, une approbation donnée au clic débloque la tâche,
+  la progression avance seule, une approbation donnée au clic **sous le flux**
+  débloque la tâche,
   un lien profond survit à un `F5`, et la perte **comme le retour** de la
   connexion se voient. Depuis la Slice 5 : le formulaire (D9), le choix du
   modèle (D10), et un orchestrateur lancé du formulaire jusqu'à son arbre
@@ -166,9 +168,10 @@ qu'une suite qui rougit à chaque retouche de style.
 | `lib/api.ts` | Jeton, appels à l'API, erreurs typées |
 | `lib/useHarness.ts` | WebSocket, reprise, état du dashboard |
 | `components/StatusBar.tsx` | Connexion et santé — un dashboard déconnecté doit le dire |
+| `App.tsx` | Routage par fragment, colonne de travail : flux, détails, navigateur |
 | `components/TaskList.tsx` | Colonne de gauche |
-| `components/TaskInspector.tsx` | État, résultat, erreur, timeline |
-| `components/ApprovalPanel.tsx` | Le seul endroit qui débloque une tâche |
+| `components/TaskInspector.tsx` | Lecture « détails » : état, résultat, erreur, diff, timeline |
+| `components/ApprovalPanel.tsx` | Le seul composant qui débloque une tâche ; montré sous le flux, dans les détails et au-dessus de la capture |
 | `components/Timeline.tsx` | Le journal, rendu lisible |
 | `components/NewTaskForm.tsx` | « Nouvelle tâche » : profils actifs seulement, dossier vérifié par le daemon |
 | `components/AgentsCard.tsx` | Exécutants ; en vue « Profils », fournisseur et modèle de chacun |
@@ -179,72 +182,69 @@ qu'une suite qui rougit à chaque retouche de style.
 | `lib/tree.ts` | Arbre des tâches, total et provenance, budget de l'arbre, agents créés — fonctions pures |
 | `lib/mcp.ts` | Noms d'outils MCP, proposition « lecture seule », avertissement — fonctions pures |
 | `lib/agents.ts` | Motif d'un profil désactivé — fonction pure |
-| `components/ChatPanel.tsx`, `lib/thread.ts` | Conversation : le fil reconstitué du journal, la saisie |
-| `components/TerminalPanel.tsx`, `lib/terminal.ts` | Terminal de l'atelier : sortie des commandes, couleurs seules |
-| `components/TerminalView.tsx`, `lib/stream.ts` | Vue terminal : le journal de l'arbre en lignes |
-| `components/BrowserPanel.tsx`, `lib/browser.ts` | Onglet « Navigateur » : ce que voit un agent |
+| `components/TerminalView.tsx`, `lib/stream.ts` | Le flux : le journal de l'arbre en lignes, les approbations de l'arbre, l'invite |
+| `components/Composer.tsx`, `lib/thread.ts` | L'invite vers l'orchestrateur, et l'image qu'un agent a lue |
+| `components/BrowserPanel.tsx`, `lib/browser.ts` | Lecture « navigateur » : ce que voit un agent |
 | `components/WorkspaceCard.tsx`, `lib/patch.ts` | Worktree et diff d'une tâche Developer |
 | `lib/bundle.ts` | Recharge une page plus vieille que son daemon |
 
-## L'atelier (Slice 6)
+## L'interface terminal
 
 ```text
- barre d'activité │ tâches │ onglets : Détails │ Navigateur │ conversation
-                  │        │ détails de la tâche, ou navigateur │ (fil + saisie)
-                  │        │ terminal                         │
+ tâches            │ [flux] [détails] [navigateur]
+ (l'arbre, en      │ le flux de l'arbre, en lignes
+  lignes)          │ approbations en attente
+ [profils] [+ …]   │ › invite vers l'orchestrateur
 ```
 
-Tout suit **la tâche sélectionnée et son arbre** : la conversation et le
-terminal sont ceux de sa racine et de ses sous-tâches. Les séparateurs se déplacent à
-la souris ; les tailles sont retenues dans `localStorage` (une commodité :
-sans stockage, la page fonctionne). Les panneaux sont bornés pour laisser à
-la zone centrale au moins 40 % de la fenêtre.
+Tout suit **la tâche sélectionnée et son arbre** : sa racine et ses
+sous-tâches. L'atelier d'origine — barre d'activité, panneau de conversation,
+terminal xterm, séparateurs déplaçables, bouton « Flux terminal » — a été
+retiré ; le flux porte ce qu'ils montraient.
 
-- **Conversation** (`ChatPanel`, `lib/thread.ts`). Le fil est reconstitué du
-  journal, événement par événement : messages de l'utilisateur, répliques de
-  l'orchestrateur, délégations, questions et propositions des sous-tâches,
-  réponses et verdicts. Les notes du harness restent dans la timeline. **La
-  saisie ne s'ouvre que lorsque la conversation attend l'utilisateur** : le
-  daemon refuse un message à une tâche qui travaille, et le motif s'affiche à la
-  place. Le panneau dit qu'une conversation ne survit pas au daemon. Tout le
-  texte est rendu comme du texte.
-- **Terminal** (`TerminalPanel`, `lib/terminal.ts`). xterm.js sans clavier
-  (`disableStdin`) : la commande, sa sortie au fil de l'eau (`exec.output`), sa
-  fin. **La sortie est nettoyée** : seules les couleurs passent. Une séquence qui
-  efface l'écran, déplace le curseur ou réinitialise le terminal (`ESC c`) ferait
-  voir à l'humain autre chose que ce qui s'est passé, au moment où il décide
-  d'une approbation ; le test unitaire a trouvé `ESC c` et `ESC 7` qui passaient
-  au premier jet. Les couleurs du thème (`oklch`) sont converties en `rgb` en
-  peignant un pixel, xterm ne lisant pas `oklch`.
+- **Le flux** (`TerminalView`, `lib/stream.ts`). Le journal de la racine et
+  de ses sous-tâches, fondu en lignes monospace ordonnées par séquence
+  globale. Il commence par ce qui a été demandé (l'objectif, absent de
+  l'événement `task.created`, vient de la tâche). Une sous-tâche est nommée
+  en tête de ligne. Une commande s'y lit **en entier**, argument à citer
+  compris (`a;b` ne se lit pas comme `a ; b`), suivie de sa sortie au fil de
+  l'eau (`exec.output`), stderr en rouge. Une note du harness (`note: true`)
+  y garde sa ligne sous le mot « note » : ce n'est pas une parole de l'agent.
+  **Tout texte est nettoyé** (`plain`) : aucune séquence d'échappement,
+  couleur comprise — la teinte d'une ligne vient d'une classe CSS. Une
+  séquence qui efface ou déplace le curseur ferait voir à l'humain autre
+  chose que ce qui s'est passé, au moment où il décide d'une approbation.
+  Le flux suit le bas tant qu'on n'a pas remonté ; « ↓ suivre » y revient.
+- **Les approbations de l'arbre**, sous le flux (`ApprovalPanel`) : celles de
+  la racine **et** de ses sous-tâches, où que soit la sélection. On décide en
+  ayant sous les yeux la commande et ce qui l'a précédée.
+- **L'invite** (`Composer`, `lib/thread.ts`). **Elle ne s'ouvre que lorsque
+  la conversation attend l'utilisateur** : le daemon refuse un message à une
+  tâche qui travaille, et le motif s'affiche à la place. Entrée envoie,
+  Maj+Entrée va à la ligne, « conclure » demande de finir. Elle dit qu'une
+  conversation ne survit pas au daemon. Tout le texte est rendu comme du texte.
+- **« annuler »**, dans l'en-tête du flux, annule la racine — donc l'arbre.
+- **Détails** (`TaskInspector`), à la demande : ce qui ne tient pas en
+  lignes — consommation, limites, sous-tâches et budget de l'arbre, diff
+  d'un Developer, appels d'outils, timeline. La lecture choisie est gardée
+  d'une tâche à l'autre **du même arbre** ; changer d'arbre ramène au flux.
 
-Le formulaire « Nouvelle tâche » propose « Conversation », cochée par défaut,
+Le formulaire « nouvelle tâche » propose « Conversation », cochée par défaut,
 pour un orchestrateur seulement.
 
-Prouvé par `test:ui` (D12 : une conversation ; D13 : sortie au terminal
-**pendant** la commande, puis la commande entière) et par
+Prouvé par `test:ui` (D4 : approuver sous le flux ; D12 : une conversation ;
+D13 : sortie **pendant** la commande, puis la commande entière ; D22 : le
+flux par défaut, détails et retour, rien de l'atelier ne reste) et par
 `tests/unit/dashboard-workbench.test.ts`. Le diff d'une tâche Developer se lit
 dans ses détails (carte du worktree, D8). Rien ici n'ouvre ni n'écrit un
 fichier : le daemon n'en a pas les routes, hors l'image lue par un agent (plus
 bas).
 
-## La vue terminal
-
-Le bouton « Flux terminal » de l'atelier ouvre `#/terminal/<id>`
-(`TerminalView`, `lib/stream.ts`) : le journal de la racine et de ses
-sous-tâches, fondu en un seul flux de lignes monospace ordonnées par séquence
-globale, sortie des commandes comprise, avec en pied la même saisie vers
-l'orchestrateur que le panneau de conversation. Elle **lit** le même journal
-que la timeline, par la même WebSocket, et n'écrit rien d'autre que ce
-message. Tout texte y est nettoyé (`plain`) : aucune séquence d'échappement,
-couleur comprise — la teinte d'une ligne vient d'une classe CSS. « Atelier → »
-revient à la tâche. Prouvé par `test:ui` (D22) et par
-`tests/unit/dashboard-workbench.test.ts`.
-
 ## Ce que voit un agent (Slice 7)
 
-- **Onglet « Navigateur »** (`BrowserPanel`, `lib/browser.ts`). Il apparaît
-  dès qu'un agent de l'arbre a ouvert un navigateur. Il s'ouvre seul à chaque
-  **nouvelle** session si l'on regardait « Détails », jamais à chaque action :
+- **Lecture « navigateur »** (`BrowserPanel`, `lib/browser.ts`). Elle apparaît
+  dès qu'un agent de l'arbre a ouvert un navigateur. Elle s'ouvre seule à
+  chaque **nouvelle** session, jamais à chaque action :
   la comparaison se fait sur la séquence d'ouverture. Il montre :
   - l'objectif approuvé, l'adresse et l'échéance ;
   - la dernière capture, redemandée à chaque événement du navigateur. Elle est
@@ -253,14 +253,14 @@ revient à la tâche. Prouvé par `test:ui` (D22) et par
   - la demande d'approbation de la tâche, **au-dessus de la capture** : on lit
     le texte à saisir en regardant la page où il partira.
 
-  Une session fermée ne rend plus de capture : l'onglet garde la dernière vue,
+  Une session fermée ne rend plus de capture : la lecture garde la dernière vue,
   et le dit. L'adresse et le titre sont du texte, jamais un lien. **« Couper la
   session »** est sans confirmation : arrêter doit être plus simple que laisser
   faire.
-- **L'image lue dans le fil.** Une image lue par `read_image` apparaît dans la
-  conversation. Elle est relue **sur le disque** (`/api/tasks/:id/files/image`),
+- **L'image lue dans le flux.** Une image lue par `read_image` apparaît à sa
+  ligne. Elle est relue **sur le disque** (`/api/tasks/:id/files/image`),
   puisque rien n'en est gardé, et montrée seulement si son SHA-256 commence comme
-  celui que l'outil a journalisé. Sinon, le fil dit que le fichier a changé.
+  celui que l'outil a journalisé. Sinon, le flux dit que le fichier a changé.
 - **Profils.** Une case déclare si le modèle d'un profil à outils d'image lit
   les images ; le catalogue du fournisseur l'emporte quand il le publie. Le
   motif d'un profil refusé vient du daemon (`disabled_reason`). La commande

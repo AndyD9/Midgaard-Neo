@@ -1,19 +1,19 @@
 /**
- * @file L'atelier du dashboard (Slice 6, étape 6) : les fonctions pures du fil
- * et du terminal, sans rendu.
+ * @file L'interface terminal du dashboard : les fonctions pures du flux, de la
+ * saisie, du navigateur et des timelines, sans rendu.
  *
  * Ce qui pourrait mentir à l'écran sans qu'aucun rendu ne le montre :
- *  - **le terminal ne laisse passer que les couleurs** d'une sortie de
- *    commande : une séquence qui efface l'écran ou réécrit une ligne ferait
- *    voir à l'humain autre chose que ce qui s'est passé, au moment même où il
- *    décide d'une approbation ;
- *  - **le fil suit l'ordre du journal** et dit qui parle à qui, sans inventer
- *    d'élément — les notes du harness n'y entrent pas ;
+ *  - **le flux ne laisse passer aucune séquence d'échappement** d'une sortie
+ *    de commande, ni d'un argument : une séquence qui efface l'écran ou réécrit
+ *    une ligne ferait voir à l'humain autre chose que ce qui s'est passé, au
+ *    moment même où il décide d'une approbation ;
+ *  - **le flux suit l'ordre du journal** et dit qui parle, sans inventer de
+ *    ligne — une note du harness n'y passe pas pour une parole de l'agent ;
  *  - **la saisie ne s'ouvre que lorsque la conversation attend** l'utilisateur ;
- *  - **le navigateur** (Slice 7) : l'état de la session se lit dans le
- *    journal, la capture n'est redemandée qu'après un événement qui l'a changée,
- *    et l'onglet ne reprend le premier plan qu'à une **nouvelle** session ;
- *  - **une image lue** entre au fil avec l'empreinte journalisée, que le panneau
+ *  - **le navigateur** : l'état de la session se lit dans le journal, la
+ *    capture n'est redemandée qu'après un événement qui l'a changée, et elle
+ *    ne reprend le premier plan qu'à une **nouvelle** session ;
+ *  - **une image lue** entre au flux avec l'empreinte journalisée, que la vue
  *    compare à celle du fichier relu ;
  *  - **une timeline chargée pendant que la tâche avance ne perd rien** : ce que
  *    la WebSocket diffuse pendant la requête survit à sa réponse ;
@@ -24,8 +24,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { DEFAULT_RESEARCHER_LIMITS, emptyUsage, type Task, type TaskEvent } from '@midgaard/contracts'
-import { buildThread, composerState } from '../../apps/dashboard/src/lib/thread.ts'
-import { buildTerminal, sanitizeOutput } from '../../apps/dashboard/src/lib/terminal.ts'
+import { composerState } from '../../apps/dashboard/src/lib/thread.ts'
 import { buildStream, plain } from '../../apps/dashboard/src/lib/stream.ts'
 import { browserSummary, closedReasonText } from '../../apps/dashboard/src/lib/browser.ts'
 import { appendEvent, mergeTimeline, unwatchTimeline, watchTimeline, type Timelines } from '../../apps/dashboard/src/lib/timeline.ts'
@@ -52,53 +51,31 @@ function ev(taskId: string, type: TaskEvent['type'], payload: Record<string, unk
   return { seq, task_seq: seq, task_id: taskId, type, at: '2026-11-03T10:00:00.000Z', status, payload }
 }
 
-describe('terminal : nettoyage de la sortie', () => {
-  it('garde le texte, les couleurs, les retours à la ligne et les tabulations', () => {
-    assert.equal(sanitizeOutput('\x1b[32mok\x1b[0m\tfin\r\n'), '\x1b[32mok\x1b[0m\tfin\r\n')
-  })
-
-  it('retire ce qui efface, déplace le curseur ou réécrit une ligne', () => {
-    // Effacer l'écran, remonter d'une ligne, se placer en 1;1, effacer la ligne.
-    const forged = 'vraie sortie\n\x1b[2J\x1b[1A\x1b[1;1H\x1b[2Kfausse ligne'
-    assert.equal(sanitizeOutput(forged), 'vraie sortie\nfausse ligne')
-  })
-
-  it('retire les séquences OSC (titre, presse-papiers, lien) et la cloche', () => {
-    assert.equal(sanitizeOutput('a\x1b]0;titre\x07b\x1b]52;c;ZXZpbA==\x07c\x1b]8;;https://x\x1b\\d\x07'), 'abcd')
-  })
-
-  it('retire les autres séquences ESC et les contrôles restants', () => {
-    assert.equal(sanitizeOutput('a\x1bcb\x1b7c\x00d\x7fe'), 'abcde')
-  })
-
-  it('compose une commande, sa sortie et sa fin, et nettoie aussi la ligne de commande', () => {
+describe('flux terminal : une commande et sa sortie', () => {
+  it('montre la commande entière, sa sortie et sa fin, et nettoie aussi la ligne de commande', () => {
     seq = 0
     const events = {
       [CHILD]: [
-        ev(CHILD, 'tool.requested', { tool_call_id: 't1', name: 'exec', decision: 'approval', arguments: JSON.stringify({ command: 'npm', args: ['test', '\x1b[2J'] }) }),
+        ev(CHILD, 'tool.requested', { tool_call_id: 't1', name: 'exec', decision: 'approval', arguments: JSON.stringify({ command: 'npm', args: ['test', '\x1b[2J', 'a;b'] }) }),
         ev(CHILD, 'exec.output', { tool_call_id: 't1', stream: 'stdout', text: 'ok\n' }),
         ev(CHILD, 'exec.output', { tool_call_id: 't1', stream: 'stderr', text: 'avert\n' }),
         ev(CHILD, 'tool.completed', { tool_call_id: 't1', status: 'succeeded', summary: 'code 0' }),
-        // Une autre commande que `exec` n'apparaît pas.
-        ev(CHILD, 'tool.requested', { tool_call_id: 't2', name: 'read_file', arguments: '{}' }),
       ],
     }
-    const text = buildTerminal([{ taskId: CHILD, label: 'Developer · 2' }], events).map((c) => c.text).join('')
-    assert.match(text, /Developer · 2.*\$.*npm test/)
-    assert.match(text, /sous approbation/)
-    assert.doesNotMatch(text, /\x1b\[2J/, 'la séquence glissée dans un argument est retirée aussi')
-    assert.match(text, /ok\n/)
-    assert.match(text, /\x1b\[31mavert\n/, 'la sortie d’erreur en rouge')
-    assert.match(text, /code 0/)
-    assert.doesNotMatch(text, /read_file/)
+    const lines = buildStream([{ taskId: ROOT, label: 'orchestrator' }, { taskId: CHILD, label: 'developer·0000' }], events)
+    assert.equal(lines[0]!.tag, 'developer·0000', 'la sous-tâche est nommée en tête de ligne')
+    assert.match(lines[0]!.text, /^\$ npm test /)
+    assert.match(lines[0]!.text, /"a;b"/, 'un argument qui porte un caractère de shell est cité')
+    assert.match(lines[0]!.text, /sous approbation/)
+    assert.doesNotMatch(lines[0]!.text, /\x1b/, 'la séquence glissée dans un argument est retirée aussi')
+    assert.deepEqual(lines.slice(1, 3).map((l) => [l.raw, l.text, l.tone]), [[true, 'ok\n', 'muted'], [true, 'avert\n', 'danger']])
+    assert.equal(lines[3]!.text, 'code 0')
   })
 })
 
-describe('fil d’un arbre', () => {
-  it('raconte qui dit quoi à qui, dans l’ordre du journal, sans les notes du harness', () => {
+describe('flux terminal : la conversation', () => {
+  it('raconte qui dit quoi, dans l’ordre du journal ; une note du harness n’est pas une parole', () => {
     seq = 0
-    const root = task(ROOT, { objective: 'aide-moi' })
-    const child = task(CHILD, { agent_id: 'developer', parent_task_id: ROOT, objective: 'ajoute /health', mode: 'review' })
     const events = {
       [ROOT]: [ev(ROOT, 'task.created')],
       [CHILD]: [] as TaskEvent[],
@@ -107,15 +84,27 @@ describe('fil d’un arbre', () => {
     events[ROOT].push(ev(ROOT, 'agent.message', { message: 'relance', note: true }))
     events[CHILD].push(ev(CHILD, 'input.requested', { request: 'proposal', text: 'route ajoutée' }, 'waiting_input'))
     events[CHILD].push(ev(CHILD, 'message.agent', { text: 'ajoute un test', from_task_id: ROOT }))
-    events[CHILD].push(ev(CHILD, 'message.agent', { verdict: 'accepted', from_task_id: ROOT }))
+    events[ROOT].push(ev(ROOT, 'message.user', { text: 'merci' }))
     events[ROOT].push(ev(ROOT, 'agent.message', { message: 'C’est fait.' }))
+    events[ROOT].push(ev(ROOT, 'task.completed', { result: { summary: 'route livrée', workspace: { branch: 'midgaard/x' } } }, 'completed'))
 
-    const thread = buildThread(root, [child], events)
-    assert.deepEqual(thread.map((i) => i.kind), ['user', 'delegation', 'proposal', 'reply', 'verdict', 'agent'])
-    assert.equal(thread[1]!.to, 'Developer · 00000000')
-    assert.equal(thread[2]!.from, 'Developer · 00000000')
-    assert.equal(thread[3]!.text, 'ajoute un test')
-    assert.ok(!thread.some((i) => i.text === 'relance'), 'une note du harness n’est pas une parole')
+    const lines = buildStream(
+      [{ taskId: ROOT, label: 'orchestrator', objective: 'aide-moi' }, { taskId: CHILD, label: 'developer', objective: 'ajoute /health' }],
+      events,
+    )
+    assert.deepEqual(
+      lines.map((l) => [l.tag, l.label, l.text]),
+      [
+        ['', 'tâche', 'aide-moi'],
+        ['developer', 'tâche', 'ajoute /health'],
+        ['', 'note', 'relance'],
+        ['developer', 'attend', 'le verdict du parent — route ajoutée'],
+        ['developer', 'parent', 'ajoute un test'],
+        ['', 'vous', 'merci'],
+        ['', 'message', 'C’est fait.'],
+        ['', 'terminée', 'route livrée — branche midgaard/x'],
+      ],
+    )
   })
 
   it('n’ouvre la saisie que lorsque la conversation attend l’utilisateur', () => {
@@ -195,7 +184,7 @@ describe('le navigateur d\'une tâche (Slice 7)', () => {
     assert.equal(closedReasonText('something new'), 'something new', 'un motif inconnu reste tel quel, rien d\'inventé')
   })
 
-  it('le fil montre une image lue, avec son chemin et le début de son empreinte ; pas un échec', () => {
+  it('le flux montre une image lue, avec son chemin et le début de son empreinte ; pas un échec', () => {
     const root = task(ROOT, { agent_id: 'navigator', mode: 'oneshot' })
     const events = {
       [ROOT]: [
@@ -206,10 +195,10 @@ describe('le navigateur d\'une tâche (Slice 7)', () => {
         ev(ROOT, 'tool.completed', { tool_call_id: 'i2', status: 'failed', summary: null }),
       ],
     }
-    const images = buildThread(root, [], events).filter((i) => i.kind === 'image')
+    const images = buildStream([{ taskId: root.id, label: 'navigator' }], events).filter((l) => l.image)
     assert.equal(images.length, 1)
     assert.deepEqual(images[0]!.image, { path: 'docs/maquette.png', sha256Prefix: '0123456789abcdef' })
-    assert.equal(images[0]!.from, 'Navigator')
+    assert.equal(images[0]!.label, 'image')
   })
 })
 

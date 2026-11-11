@@ -1,18 +1,17 @@
 /**
- * @file Le flux terminal d'un arbre de tâches (Slice 10, étape 3) : tous les
- * événements de la racine et de ses sous-tâches, fondus en un seul flux
- * chronologique de **lignes façon terminal**. Fonctions pures, sans React,
- * testées dans `tests/unit/dashboard-stream.test.ts`.
+ * @file Le flux terminal d'un arbre de tâches : tous les événements de la
+ * racine et de ses sous-tâches, fondus en un seul flux chronologique de
+ * **lignes façon terminal**. Fonctions pures, sans React, testées dans
+ * `tests/unit/dashboard-workbench.test.ts`.
  *
- * C'est la vue « moins d'interface, plus de lignes et de temps réel » : une
- * ligne par événement, l'identité de la sous-tâche en tête, la sortie `exec` au
- * fil de l'eau. Elle **lit** le même journal que la timeline et le terminal de
- * l'atelier ; elle n'écrit rien, hormis la dialogue box vers l'orchestrateur,
- * qui passe par l'API de conversation comme le panneau de chat.
+ * C'est l'interface du dashboard : une ligne par événement, l'identité de la
+ * sous-tâche en tête, la commande d'un `exec` et sa sortie au fil de l'eau, ce
+ * que l'utilisateur et l'orchestrateur se disent, l'image qu'un agent a lue.
+ * Elle **lit** le même journal que la timeline des détails ; elle n'écrit rien.
  *
  * **Tout texte affiché est une donnée possiblement hostile** : messages d'agents,
- * sorties de commandes, résumés d'outils. Comme le terminal de l'atelier, cette
- * vue ne rend que du texte — mais en HTML, pas dans un vrai terminal. Une
+ * sorties de commandes, résumés d'outils. Cette vue ne rend que du texte, en
+ * HTML, pas dans un vrai terminal. Une
  * séquence d'échappement n'y est pas interprétée ; {@link plain} les retire
  * **toutes**, couleur comprise (la couleur est portée par une classe CSS, pas
  * par des octets venus de la sortie), avec les caractères de contrôle qui
@@ -39,12 +38,43 @@ export interface StreamLine {
   tone: StreamTone
   /** Vrai pour une sortie `exec` : rendue telle quelle, en pré-formaté. */
   raw: boolean
+  /**
+   * Pour une image lue par `read_image` : son chemin dans la tâche et le début
+   * de son SHA-256 au moment de la lecture. La vue la relit sur le disque et ne
+   * la montre que si l'empreinte est encore celle-là.
+   */
+  image?: { path: string; sha256Prefix: string } | undefined
 }
 
 /** Une tâche dont le flux montre les événements, et son libellé. */
 export interface StreamSource {
   taskId: string
   label: string
+  /**
+   * Objectif de la tâche, montré à la ligne de sa création : l'événement
+   * `task.created` ne le porte pas, et c'est par lui qu'un flux commence —
+   * ce que l'utilisateur a demandé, ou ce que l'orchestrateur a délégué.
+   */
+  objective?: string | undefined
+}
+
+/** Le résumé que `read_image` journalise : « chemin · type · n octets · sha256 <16 hex> ». */
+const READ_IMAGE_SUMMARY = /^(.+) · image\/[a-z]+ · \d+ octets · sha256 ([0-9a-f]{16})$/
+
+/**
+ * Ligne de commande lisible depuis les arguments journalisés d'un `exec`. Un
+ * argument qui porte un espace ou un caractère de shell est cité : `a;b` et
+ * `a ; b` ne doivent pas se lire pareil.
+ */
+function commandLine(argumentsJson: unknown): string {
+  try {
+    const args = JSON.parse(String(argumentsJson)) as { command?: string; args?: string[]; cwd?: string }
+    const argv = [args.command ?? '?', ...(args.args ?? [])].map((a) => (/[\s"'$`\\;|&]/.test(a) ? JSON.stringify(a) : a))
+    return argv.join(' ') + (args.cwd && args.cwd !== '.' ? `   (dans ${args.cwd})` : '')
+  } catch {
+    // Arguments tronqués au journal (4000 caractères) : on montre ce qu'on a.
+    return String(argumentsJson).slice(0, 200)
+  }
 }
 
 /**
@@ -76,7 +106,7 @@ const AWAITING: Record<string, string> = {
 
 /** Mot de tête et teinte par type d'événement. Un type inconnu garde son nom, en sourdine. */
 const LOOK: Partial<Record<string, { label: string; tone: StreamTone }>> = {
-  'task.created': { label: 'tâche', tone: 'muted' },
+  'task.created': { label: 'tâche', tone: 'accent' },
   'task.started': { label: 'départ', tone: 'running' },
   'task.progress': { label: 'étape', tone: 'running' },
   'task.completed': { label: 'terminée', tone: 'done' },
@@ -85,7 +115,7 @@ const LOOK: Partial<Record<string, { label: string; tone: StreamTone }>> = {
   'task.interrupted': { label: 'interrompue', tone: 'danger' },
   'task.budget_exceeded': { label: 'budget', tone: 'waiting' },
   'task.timed_out': { label: 'délai', tone: 'waiting' },
-  'agent.message': { label: 'message', tone: 'muted' },
+  'agent.message': { label: 'message', tone: 'done' },
   'approval.requested': { label: 'approbation?', tone: 'waiting' },
   'approval.resolved': { label: 'approbation', tone: 'done' },
   'tool.requested': { label: 'outil', tone: 'running' },
@@ -124,6 +154,9 @@ function detail(event: TaskEvent): string | null {
     case 'subtask.waiting':
       return `${String(p.agent_id)} ${String(p.task_id).slice(0, 8)} (${String(p.status)})`
     case 'tool.requested':
+      // Une commande se lit en entier, là où elle part : c'est elle que
+      // l'humain approuve, et sa sortie suit.
+      if (p.name === 'exec') return `$ ${commandLine(p.arguments)}${p.decision === 'approval' ? '   (sous approbation)' : ''}`
       return `${String(p.name)}${p.decision === 'allow' ? '' : ` (${String(p.decision)})`}`
     case 'tool.completed':
       return p.error ? `échec — ${String(p.error)}` : ((p.summary as string | null) ?? String(p.status))
@@ -145,6 +178,11 @@ function detail(event: TaskEvent): string | null {
     case 'message.agent':
     case 'agent.message':
       return typeof p.message === 'string' ? p.message : typeof p.text === 'string' ? p.text : null
+    case 'task.completed': {
+      const result = p.result as { summary?: string; workspace?: { branch?: string } | null } | undefined
+      if (!result?.summary) return null
+      return result.workspace?.branch ? `${result.summary} — branche ${result.workspace.branch}` : result.summary
+    }
     case 'task.failed':
     case 'task.cancelled':
     case 'task.budget_exceeded':
@@ -165,8 +203,23 @@ export function buildStream(sources: StreamSource[], events: Record<string, Task
   for (const source of sources) {
     const isRoot = sources.length === 1 || source === sources[0]
     const tag = isRoot ? '' : plain(source.label).slice(0, 24)
+    /** Appels `read_image` de cette tâche : leur fin porte l'image à montrer. */
+    const imageCalls = new Set<string>()
     for (const e of events[source.taskId] ?? []) {
       const look = LOOK[e.type] ?? { label: e.type, tone: 'muted' as StreamTone }
+      const payload = e.payload as Record<string, unknown>
+      if (e.type === 'tool.requested' && payload.name === 'read_image') imageCalls.add(String(payload.tool_call_id))
+      if (e.type === 'tool.completed' && payload.status === 'succeeded' && imageCalls.has(String(payload.tool_call_id))) {
+        // Seule une lecture réussie montre une image : un échec reste une ligne d'outil.
+        const match = READ_IMAGE_SUMMARY.exec(String(payload.summary ?? ''))
+        if (match) {
+          lines.push({
+            key: `${e.seq}`, seq: e.seq, at: e.at, taskId: source.taskId, tag, label: 'image', text: plain(match[1]!),
+            tone: 'running', raw: false, image: { path: match[1]!, sha256Prefix: match[2]! },
+          })
+          continue
+        }
+      }
       if (e.type === 'exec.output') {
         const body = plain(String((e.payload as Record<string, unknown>).text ?? ''))
         if (!body) continue
@@ -174,14 +227,17 @@ export function buildStream(sources: StreamSource[], events: Record<string, Task
         lines.push({ key: `${e.seq}`, seq: e.seq, at: e.at, taskId: source.taskId, tag, label: '', text: body, tone: stderr ? 'danger' : 'muted', raw: true })
         continue
       }
-      const d = detail(e)
+      const d = e.type === 'task.created' ? (source.objective ?? null) : detail(e)
+      // Une note du harness (relance, avertissement) n'est pas une parole de
+      // l'agent : elle garde sa ligne, sous un autre mot.
+      const label = e.type === 'agent.message' && payload.note === true ? 'note' : look.label
       lines.push({
         key: `${e.seq}`,
         seq: e.seq,
         at: e.at,
         taskId: source.taskId,
         tag,
-        label: look.label,
+        label,
         text: d ? plain(d) : '',
         tone: look.tone,
         raw: false,

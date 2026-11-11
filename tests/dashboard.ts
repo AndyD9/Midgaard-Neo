@@ -36,13 +36,13 @@
  *    puis accepté, sous-tâche rangée sous son parent, carte « Sous-tâches »
  *    avec le plafond théorique et le total de l'arbre **avec sa provenance**,
  *    lien de l'enfant vers son parent ;
- *  - D12 une conversation dans l'atelier (Slice 6) : la réplique de
+ *  - D12 une conversation dans le flux : la réplique de
  *    l'orchestrateur s'affiche, la saisie ne s'ouvre que lorsqu'il attend, le
  *    message part, et la conversation se ferme sur son résultat ;
- *  - D13 l'atelier suit un Developer : le terminal montre la sortie d'une
+ *  - D13 le flux suit un Developer : il montre la sortie d'une
  *    commande **pendant** qu'elle tourne, puis la commande entière ;
- *  - D14 l'atelier montre ce que voit un Navigator (Slice 7) : la vision se
- *    déclare dans « Profils », l'image lue s'affiche dans le fil, l'onglet
+ *  - D14 le dashboard montre ce que voit un Navigator : la vision se
+ *    déclare dans « Profils », l'image lue s'affiche dans le flux, la lecture
  *    « Navigateur » s'ouvre seul sur la capture, la saisie à approuver s'y
  *    lit, et « Couper la session » coupe — la saisie approuvée ensuite ne part
  *    pas. Il tourne sur un second daemon, **dans ce processus**, pour lui
@@ -65,9 +65,10 @@
  *    vidé après l'envoi, clé absente de la page et de l'API ; le fournisseur
  *    la reçoit pourtant (relue au coffre) ; une clé remplacée l'est vraiment ;
  *    retirer se confirme.
- *  - D22 la **vue terminal** (Slice 10) : atteinte par le bouton « Flux
- *    terminal » de l'atelier, elle rejoue le journal de l'arbre en lignes, porte
- *    la dialogue box vers l'orchestrateur, et le bouton « Atelier → » revient.
+ *  - D22 **le flux est l'interface** : le lien d'une tâche l'ouvre, il
+ *    commence par l'objectif et rejoue le journal en lignes, porte l'invite
+ *    vers l'orchestrateur ; « détails » se lit à la demande, `#/terminal/<id>`
+ *    ramène au flux, et rien de l'atelier d'origine ne reste.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -201,6 +202,15 @@ async function sees(text: string | RegExp, timeout = UI_TIMEOUT): Promise<boolea
   } catch {
     return false
   }
+}
+
+/**
+ * Ouvre la lecture « détails » de la tâche affichée. La colonne de travail
+ * montre le flux par défaut : ce qui ne tient pas en lignes (diff, sous-tâches,
+ * agents créés) se lit dans les détails, et un humain y va par ce même clic.
+ */
+async function openDetails(): Promise<void> {
+  await page.getByTestId('tab-details').click({ timeout: UI_TIMEOUT })
 }
 
 /**
@@ -447,6 +457,7 @@ await scenario(outcomes, 'D8 le diff d’une tâche Developer se lit dans le das
     const branch = (await taskNow(id)).result?.workspace?.branch ?? '(absente)'
 
     await page.goto(`${rt.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
+    await openDetails()
     const card = page.getByTestId('workspace-card')
     try {
       await card.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
@@ -547,6 +558,7 @@ await scenario(outcomes, 'D11 un orchestrateur lancé du formulaire, et son arbr
     if (child.status !== 'completed') return { verdict: 'FAIL', detail: `sous-tâche ${child.status} — ${child.error}` }
 
     // La carte : plafond, total, et la provenance la plus faible de l'arbre.
+    await openDetails()
     const card = page.getByTestId('subtasks-card')
     await card.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
     const ceiling = (await card.getByTestId('subtasks-ceiling').textContent()) ?? ''
@@ -611,7 +623,7 @@ function makeRepo(files: Record<string, string>): { repo: string; dispose: () =>
   return { repo, dispose: () => rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) }
 }
 
-await scenario(outcomes, 'D12 une conversation avec l’orchestrateur, dans l’atelier', async () => {
+await scenario(outcomes, 'D12 une conversation avec l’orchestrateur, dans le flux', async () => {
   const provider = await startFakeProvider()
   const { repo, dispose } = makeRepo({ 'README.md': '# Projet\n' })
   try {
@@ -627,9 +639,9 @@ await scenario(outcomes, 'D12 une conversation avec l’orchestrateur, dans l’
     const id = created.task.id
     await page.goto(`${rt.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
 
-    const chat = page.getByTestId('chat-panel')
+    const chat = page.getByTestId('terminal-stream')
     try {
-      await chat.locator('[data-kind="agent"]').getByText('Quel fichier dois-je lire ?').waitFor({ timeout: UI_TIMEOUT })
+      await chat.locator('[data-type="message"]').getByText('Quel fichier dois-je lire ?').waitFor({ timeout: UI_TIMEOUT })
       await page.getByTestId('chat-input').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
     } catch {
       return { verdict: 'FAIL', detail: `réplique ou saisie absente (tâche ${(await taskNow(id)).status})` }
@@ -642,8 +654,8 @@ await scenario(outcomes, 'D12 une conversation avec l’orchestrateur, dans l’
       return { verdict: 'FAIL', detail: `conversation non conclue : ${t.status} — ${t.error}` }
     }
     try {
-      await chat.locator('[data-kind="user"]').getByText('le README', { exact: true }).waitFor({ timeout: UI_TIMEOUT })
-      await chat.locator('[data-kind="result"]').getByText('le README dit Projet').waitFor({ timeout: UI_TIMEOUT })
+      await chat.locator('[data-type="vous"]').getByText('le README', { exact: true }).waitFor({ timeout: UI_TIMEOUT })
+      await chat.locator('[data-type="terminée"]').getByText('le README dit Projet').waitFor({ timeout: UI_TIMEOUT })
     } catch {
       return { verdict: 'FAIL', detail: 'le message envoyé ou le résultat manque au fil' }
     }
@@ -658,7 +670,7 @@ await scenario(outcomes, 'D12 une conversation avec l’orchestrateur, dans l’
 
 // --- D13 ---------------------------------------------------------------------
 
-await scenario(outcomes, 'D13 l’atelier suit un Developer : terminal en direct', async () => {
+await scenario(outcomes, 'D13 le flux suit un Developer : sortie en direct', async () => {
   const provider = await startFakeProvider()
   // Une ligne, deux secondes de silence, une autre : la première doit être à
   // l'écran pendant que la commande tourne encore.
@@ -690,10 +702,10 @@ await scenario(outcomes, 'D13 l’atelier suit un Developer : terminal en direct
     await daemonJson(rt, `/api/approvals/${approval.id}/approve`, { method: 'POST', body: JSON.stringify({ by: 'test' }) })
 
     // Pendant la commande : la première ligne est à l'écran, la seconde pas encore.
-    const rows = page.getByTestId('terminal-panel').locator('.xterm-rows')
+    const rows = page.getByTestId('terminal-stream')
     const live = await until(async () => /première ligne/.test((await rows.textContent()) ?? ''), 10_000)
     const runningStill = (await taskNow(id)).status === 'running' && !/seconde ligne/.test((await rows.textContent()) ?? '')
-    if (!live) return { verdict: 'FAIL', detail: 'la sortie de la commande n’apparaît pas au terminal' }
+    if (!live) return { verdict: 'FAIL', detail: 'la sortie de la commande n’apparaît pas au flux' }
     if (!runningStill) return { verdict: 'FAIL', detail: 'la sortie n’est apparue qu’à la fin : pas en direct' }
 
     if (!(await until(async () => (await taskNow(id)).status === 'completed'))) {
@@ -702,9 +714,9 @@ await scenario(outcomes, 'D13 l’atelier suit un Developer : terminal en direct
     }
     const terminal = (await rows.textContent()) ?? ''
     if (!/node parle\.js/.test(terminal) || !/seconde ligne/.test(terminal)) {
-      return { verdict: 'FAIL', detail: 'le terminal ne montre pas la commande entière' }
+      return { verdict: 'FAIL', detail: 'le flux ne montre pas la commande entière' }
     }
-    return { verdict: 'PASS', detail: 'sortie au terminal pendant la commande, puis la commande entière' }
+    return { verdict: 'PASS', detail: 'sortie au flux pendant la commande, puis la commande entière' }
   } finally {
     provider.server.close()
     dispose()
@@ -730,7 +742,7 @@ async function imageLoaded(testId: string): Promise<boolean> {
   )
 }
 
-await scenario(outcomes, 'D14 l’atelier montre ce que voit un Navigator, et l’humain coupe', async () => {
+await scenario(outcomes, 'D14 le dashboard montre ce que voit un Navigator, et l’humain coupe', async () => {
   const provider = await startFakeProvider()
   const { repo, dispose } = makeRepo({ 'README.md': '# Projet\n' })
   writeFileSync(join(repo, 'maquette.png'), readFileSync(new URL('../apps/desktop/src-tauri/icons/icon.png', import.meta.url)))
@@ -790,14 +802,14 @@ await scenario(outcomes, 'D14 l’atelier montre ce que voit un Navigator, et l�
     await page.goto(`${rt2.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
 
     // 2. L'image lue s'affiche dans le fil, relue sur le disque.
-    const shown = page.getByTestId('chat-panel').getByTestId('chat-image')
+    const shown = page.getByTestId('terminal-stream').getByTestId('chat-image')
     try {
       await shown.waitFor({ timeout: UI_TIMEOUT })
       if (!(await imageLoaded('chat-image'))) throw new Error('image vide')
     } catch {
       // Ce que le fil montre à la place : l'élément, une note, ou rien. Vu
       // échouer une fois en CI sous macOS, sans qu'on sache lequel.
-      const items = await page.locator('[data-testid="chat-item"][data-kind="image"]').count()
+      const items = await page.locator('[data-testid="terminal-line"][data-type="image"]').count()
       const note = await page.getByTestId('chat-image-note').first().textContent({ timeout: 500 }).catch(() => null)
       const width = await shown.first().evaluate((el) => (el as unknown as { naturalWidth: number }).naturalWidth).catch(() => null)
       return {
@@ -953,6 +965,7 @@ await scenario(outcomes, 'D17 un orchestrateur crée un exécutant : son rôle e
       return { verdict: 'FAIL', detail: `orchestrateur non terminé : ${t.status} — ${t.error}` }
     }
     await page.goto(`${rt.dashboard_url}#/tasks/${parentId}`, { waitUntil: 'domcontentloaded' })
+    await openDetails()
     const list = page.getByTestId('created-agents')
     await list.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
     const shown = (await list.textContent()) ?? ''
@@ -1082,42 +1095,45 @@ await scenario(outcomes, 'D20 une clé se dépose aux Profils : masquée, jamais
 
 // --- D22 ---------------------------------------------------------------------
 
-await scenario(outcomes, 'D22 la vue terminal rejoue le flux de l’arbre, avec la dialogue box', async () => {
+await scenario(outcomes, 'D22 le flux est la vue par défaut, détails à la demande, et rien de l’atelier ne reste', async () => {
   if (!vue) return { verdict: 'FAIL', detail: 'D2 n’a pas créé de tâche' }
   const id = vue.task.id
-  // On y arrive par l'atelier, via le bouton « Flux terminal » : c'est le chemin
-  // qu'un humain prend, et il doit exister.
+  // Le lien d'une tâche ouvre le flux : c'est l'interface, pas une vue annexe.
   await page.goto(`${rt.dashboard_url}#/tasks/${id}`, { waitUntil: 'domcontentloaded' })
-  const toTerminal = page.getByTestId('nav-terminal-view')
-  if (!(await toTerminal.isVisible().catch(() => false))) {
-    return { verdict: 'FAIL', detail: 'pas de bouton « Flux terminal » dans l’atelier' }
-  }
-  await toTerminal.click()
-
-  // La vue montre le flux, en lignes, et au moins une ligne de la tâche simulée
-  // (son démarrage et ses étapes sont au journal).
   const stream = page.getByTestId('terminal-stream')
   if (!(await stream.waitFor({ state: 'visible', timeout: UI_TIMEOUT }).then(() => true).catch(() => false))) {
-    return { verdict: 'FAIL', detail: 'le flux terminal ne s’affiche pas' }
+    return { verdict: 'FAIL', detail: 'le lien d’une tâche n’ouvre pas le flux' }
   }
-  const lines = await until(async () => (await page.getByTestId('terminal-line').count()) > 0)
-  if (!lines) return { verdict: 'FAIL', detail: 'aucune ligne dans le flux terminal' }
+  // Le flux commence par ce qui a été demandé, puis rejoue le journal de la
+  // tâche simulée (son démarrage et ses étapes y sont).
+  const first = stream.getByTestId('terminal-line').first()
+  if (!(await until(async () => ((await first.textContent().catch(() => '')) ?? '').includes(vue.task.objective)))) {
+    return { verdict: 'FAIL', detail: 'le flux ne commence pas par l’objectif de la tâche' }
+  }
+  if ((await page.getByTestId('terminal-line').count()) < 2) return { verdict: 'FAIL', detail: 'le journal n’est pas rejoué en lignes' }
 
-  // La dialogue box est là (la tâche simulée ne converse pas : elle est fermée,
-  // avec son motif — comme le panneau de chat). Sa présence suffit ; son
-  // comportement d'ouverture est éprouvé par D12.
+  // L'invite est là (la tâche simulée ne converse pas : elle est fermée, avec
+  // son motif). Sa présence suffit ; son ouverture est éprouvée par D12.
   const hasComposer = (await page.getByTestId('chat-input').count()) > 0 || (await page.getByTestId('chat-closed').count()) > 0
-  if (!hasComposer) return { verdict: 'FAIL', detail: 'pas de dialogue box dans la vue terminal' }
+  if (!hasComposer) return { verdict: 'FAIL', detail: 'pas d’invite sous le flux' }
 
-  // Retour à l'atelier par le bouton de la vue.
-  await page.getByTestId('terminal-to-workbench').click()
-  const back = await page
-    .getByTestId('tab-details')
-    .waitFor({ state: 'visible', timeout: UI_TIMEOUT })
-    .then(() => true)
-    .catch(() => false)
-  if (!back) return { verdict: 'FAIL', detail: 'le retour à l’atelier n’a pas eu lieu' }
-  return { verdict: 'PASS', detail: 'flux en lignes, dialogue box présente, aller-retour atelier ↔ terminal' }
+  // Détails à la demande, et retour au flux.
+  await openDetails()
+  if (!(await sees('Timeline'))) return { verdict: 'FAIL', detail: '« détails » ne montre pas l’inspecteur de la tâche' }
+  if (await stream.isVisible()) return { verdict: 'FAIL', detail: 'le flux reste affiché sous les détails' }
+  // L'ancien lien de la vue terminal désigne le flux, quelle que soit la lecture en cours.
+  await page.evaluate((hash) => { (globalThis as unknown as { location: { hash: string } }).location.hash = hash }, `#/terminal/${id}`)
+  if (!(await stream.waitFor({ state: 'visible', timeout: UI_TIMEOUT }).then(() => true).catch(() => false))) {
+    return { verdict: 'FAIL', detail: '#/terminal/<id> ne ramène pas au flux' }
+  }
+
+  // Rien de l'atelier d'origine : ni barre d'activité, ni panneau de
+  // conversation, ni terminal xterm.
+  for (const gone of ['activity-tasks', 'chat-panel', 'terminal-panel']) {
+    if ((await page.getByTestId(gone).count()) > 0) return { verdict: 'FAIL', detail: `« ${gone} » de l’atelier est encore là` }
+  }
+  if ((await page.locator('.xterm').count()) > 0) return { verdict: 'FAIL', detail: 'un terminal xterm est encore monté' }
+  return { verdict: 'PASS', detail: 'flux par défaut, objectif en tête, invite présente, détails et retour, atelier absent' }
 })
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {

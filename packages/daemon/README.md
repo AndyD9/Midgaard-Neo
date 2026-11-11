@@ -238,7 +238,7 @@ qui ne lit pas les images. Une session se ferme :
 
 Le journal reçoit `browser.opened` et `browser.closed`, expurgés ; les actions
 y sont comme appels d'outil. La dernière capture reste **en mémoire**
-(`frame`) : l'atelier la lit par `GET /api/tasks/:id/browser/frame`, qui rend
+(`frame`) : le dashboard la lit par `GET /api/tasks/:id/browser/frame`, qui rend
 404 dès la session fermée. Aucune n'est écrite.
 
 Les octets d'image (cette capture, et une image du projet par
