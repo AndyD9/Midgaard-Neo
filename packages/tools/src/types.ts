@@ -119,7 +119,51 @@ export interface ToolContext {
    * **refusent** — fermé par défaut, comme {@link ToolContext.browser}.
    */
   mcp?: McpPort | undefined
+  /**
+   * Le web lu par un vrai navigateur (`search_web`, `read_web_page`). Posé par
+   * le daemon pour un profil qui a ces outils, et pour lui seul. Absent, ils
+   * **refusent** — fermé par défaut, comme {@link ToolContext.browser}.
+   */
+  web?: WebPort | undefined
   log: (...a: unknown[]) => void
+}
+
+/** Une page web lue en texte par le navigateur. Écrite par la page : **non fiable**. */
+export interface WebPage {
+  /** Adresse finale, redirections suivies. */
+  url: string
+  title: string
+  /** Code HTTP de la navigation, `null` si le navigateur ne l'a pas su. */
+  status: number | null
+  /** Texte visible de la page. */
+  text: string
+  /** Vrai si la page était plus longue que ce que le navigateur relève. */
+  truncated: boolean
+}
+
+/** Un résultat de recherche web. Écrit par le moteur et les sites : **non fiable**. */
+export interface WebSearchResult {
+  title: string
+  url: string
+  snippet: string
+}
+
+/**
+ * Le web d'une tâche, lu par un navigateur isolé, **en texte** : ni capture,
+ * ni clic, ni saisie — c'est ce qui le distingue de {@link BrowserPort}, dont
+ * la session s'approuve. Ici l'agent ne fait que charger une adresse publique,
+ * comme `http_fetch`, et la politique est celle d'`http_fetch`.
+ *
+ * Le port exécute et ne décide rien. Chaque méthode lève une {@link ToolError}
+ * lisible par le modèle si la page ou le moteur refuse.
+ */
+export interface WebPort {
+  /** Hôtes des moteurs de recherche employés : ce que la politique HTTP juge avant une recherche. */
+  searchHosts(): readonly string[]
+  /** Charge la page de résultats d'un moteur public et en relève les liens. */
+  search(query: string): Promise<{ engine: string; results: WebSearchResult[] }>
+  /** Charge une adresse et rend le texte visible de la page. */
+  read(url: string): Promise<WebPage>
 }
 
 /** Ce que l'agent voit de la page après une action. Écrit par la page : **non fiable**. */
@@ -415,6 +459,9 @@ export interface Tool<T = unknown> {
    */
   run(args: T, ctx: ToolContext, prepared?: PreparedOperation): Promise<ToolResult>
 }
+
+/** Ce que rend la politique d'un outil : la décision et son motif. */
+export type ToolDecisionLike = { decision: ToolDecision; reason: string }
 
 /** Erreur d'outil destinée au modèle : lisible, actionnable, sans détail interne. */
 export class ToolError extends Error {

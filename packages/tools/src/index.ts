@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import type { Tool, ToolContext } from './types.ts'
 import { httpFetchTool } from './http.ts'
+import { readWebPageTool, searchWebTool } from './web.ts'
 import { listDirectoryTool, readFileTool, searchFilesTool } from './fs.ts'
 import { submitResultTool } from './result.ts'
 import { deleteFileTool, editFileTool, writeFileTool } from './write.ts'
@@ -34,7 +35,9 @@ export type {
   Tool, ToolContext, HttpPolicy, PreparedOperation,
   CreateAgentRequest, CreatedAgentInfo, DelegableAgent, DelegateRequest, DelegationPort, DelegationRefusal, SubtaskAwaiting, SubtaskState, WaitStop,
   BrowserCapture, BrowserNoSession, BrowserPageView, BrowserPlannedInput, BrowserPort, BrowserSessionInfo,
+  WebPage, WebPort, WebSearchResult,
 } from './types.ts'
+export { looksLikeBotCheck, WEB_SEARCH_MAX_QUERY_CHARS, WEB_TOOLS } from './web.ts'
 export { ToolError, HTTP_POLICIES, MAX_TOOL_RESULT_BYTES, truncate } from './types.ts'
 export { canonicalRoot, isUnder, openUnderRoot, resolveUnderRoot, toolPath } from './paths.ts'
 export { lineExcerpts, nameSuffix } from './fs.ts'
@@ -94,6 +97,8 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
   list_directory: listDirectoryTool as Tool<never>,
   search_files: searchFilesTool as Tool<never>,
   http_fetch: httpFetchTool as Tool<never>,
+  search_web: searchWebTool as Tool<never>,
+  read_web_page: readWebPageTool as Tool<never>,
   write_file: writeFileTool as Tool<never>,
   edit_file: editFileTool as Tool<never>,
   delete_file: deleteFileTool as Tool<never>,
@@ -126,6 +131,9 @@ export const TOOLBOX: Readonly<Record<string, Tool<never>>> = Object.freeze({
  * modèle décide lui-même de chercher pendant qu'il répond. En faire un outil
  * exigerait un appel de modèle **supplémentaire** par recherche, donc de payer
  * deux fois ce que le fournisseur fait en une.
+ *
+ * À ne pas confondre avec `search_web`, qui **est** un outil : une recherche
+ * faite par le navigateur isolé du harness, quel que soit le fournisseur.
  *
  * Il reste donc dans la liste d'outils d'un profil — où il agit comme
  * l'interrupteur qui active la recherche native — sans jamais être proposé au

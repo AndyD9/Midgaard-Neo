@@ -11,6 +11,8 @@ une tâche `orchestrator`.
 | `list_directory` | Le contenu d'un dossier, sans récursion |
 | `search_files` | Une expression régulière sur les fichiers d'un **répertoire** du projet |
 | `http_fetch` | Une URL publique, HTML converti en texte |
+| `search_web` | Une recherche sur un moteur public, **par le navigateur isolé** : jusqu'à 10 résultats ; **non fiable** |
+| `read_web_page` | Le texte visible d'une page publique, scripts exécutés, **par le navigateur isolé** ; **non fiable** |
 | `write_file` | Crée ou remplace un fichier du **worktree** |
 | `edit_file` | Remplace un passage exact d'un fichier du worktree |
 | `delete_file` | Supprime un fichier du worktree (jamais un dossier) |
@@ -303,7 +305,40 @@ le réglage aussi (`MIDGAARD_HTTP_ALLOW`), et le défaut est **annoncé** plutô
 que présenté comme une liste blanche qui n'en serait pas une. Les adresses
 privées restent refusées dans les trois cas.
 
+## `search_web` et `read_web_page` : le web par un vrai navigateur
+
+`http_fetch` lit une adresse comme un client HTTP nu : pas de JavaScript, et
+bien des sites le refusent d'emblée. Ces deux outils (`web.ts`) chargent la
+page dans le Chromium isolé du harness, derrière son proxy gardé, et rendent
+ce qu'un lecteur y verrait ; `search_web` fait de même avec la page de
+résultats d'un moteur public. L'agent cherche et lit **de lui-même**.
+
+- **Fermés par défaut** : sans `ToolContext.web`, ils refusent. Le daemon ne
+  pose ce port que pour un profil qui a ces outils (le Researcher).
+- **La politique est celle d'`http_fetch`** (`MIDGAARD_HTTP_POLICY`,
+  `MIDGAARD_HTTP_ALLOW`), pour une page comme pour une recherche — où **tous**
+  les moteurs sont jugés, puisque le port essaie le suivant quand le premier
+  ne répond pas. Aucune session ne s'approuve : rien n'est cliqué ni saisi,
+  l'agent ne fait que charger une adresse publique. La requête d'une
+  recherche part dans une adresse, comme elle partirait par `http_fetch` ; la
+  consigne interdit d'y mettre un secret ou du contenu privé du projet.
+- **Ce qui est rendu est `untrusted`**, et cité (`citations`).
+- **Aucun contournement.** Le navigateur s'annonce piloté. Une page qui
+  répond par une vérification anti-robot est rendue telle quelle, **avec une
+  note qui le dit** (`looksLikeBotCheck`, une heuristique qui ne sert qu'à
+  prévenir) : l'agent doit savoir qu'il n'a pas lu le contenu. Une recherche
+  à laquelle aucun moteur ne répond **échoue en le disant**, jamais par une
+  liste vide qui se lirait « rien trouvé ».
+- `read_web_page` prend un `offset` pour reprendre une page plus longue que
+  ce qu'un résultat d'outil rend.
+
+Ce que les moteurs et les sites répondent réellement est consigné dans le
+README de `@midgaard/browser`. Prouvé par `tests/unit/web-tools.test.ts`.
+
 ## `web_search` n'est pas un outil appelable
+
+À ne pas confondre avec `search_web` ci-dessus, qui **est** un outil et vaut
+pour tout fournisseur.
 
 Chez Venice, la recherche web est un **drapeau de requête**
 (`venice_parameters.enable_web_search`), pas une fonction que le modèle appelle.

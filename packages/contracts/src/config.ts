@@ -124,6 +124,22 @@ export interface HarnessConfig {
   /** Hôtes toujours autorisés. Motifs `exemple.org` ou `*.exemple.org`. */
   allowHosts: string[]
   /**
+   * Le navigateur des outils `search_web` et `read_web_page`
+   * (`MIDGAARD_WEB_BROWSER`) :
+   *
+   *  - `window` (défaut) : une fenêtre Chromium visible sur l'écran de
+   *    l'utilisateur, ouverte à la première recherche d'une tâche. Constaté :
+   *    les moteurs de recherche refusent un navigateur sans fenêtre et
+   *    répondent au même, fenêtré. Sans écran, le daemon retombe sur
+   *    `headless` et le dit au journal ;
+   *  - `headless` : sans fenêtre. La lecture d'une page marche souvent, la
+   *    recherche presque jamais.
+   *
+   * Dans les deux cas le navigateur s'annonce piloté : aucune vérification
+   * anti-robot n'est contournée.
+   */
+  webBrowser: 'window' | 'headless'
+  /**
    * Commandes que l'outil `exec` lance **sans approbation** : des argv exacts,
    * lus dans `MIDGAARD_EXEC_ALLOW` (`npm test;npx tsc --noEmit`). **Vide par
    * défaut**, décision de la Slice 3 : un agent qui écrit `package.json` fait
@@ -151,6 +167,7 @@ export interface ConfigEnv {
   MIDGAARD_LAUNCHER?: string | undefined
   MIDGAARD_HTTP_POLICY?: string | undefined
   MIDGAARD_HTTP_ALLOW?: string | undefined
+  MIDGAARD_WEB_BROWSER?: string | undefined
   MIDGAARD_EXEC_ALLOW?: string | undefined
   MIDGAARD_MAX_ACTIVE_SUBTASKS?: string | undefined
 }
@@ -230,6 +247,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
       .split(',')
       .map((h) => h.trim())
       .filter(Boolean),
+    webBrowser: env.MIDGAARD_WEB_BROWSER?.trim().toLowerCase() === 'headless' ? 'headless' : 'window',
     execAllow: parseExecAllow(env.MIDGAARD_EXEC_ALLOW),
     // Un entier d'au moins 1 : zéro interdirait toute délégation sans le dire.
     maxActiveSubtasks: Number.isInteger(maxActive) && maxActive >= 1 ? maxActive : 4,

@@ -21,6 +21,7 @@ desktop.
 | `mcp-servers.ts` | Serveurs MCP déclarés (Slice 8) : coffre d'abord, test qui lit le vrai catalogue, outils cochés avec leur empreinte |
 | `mcp-sessions.ts` | Les serveurs MCP des tâches : lancés au départ, fermés à la fin, tous fermés à l'arrêt |
 | `browsers.ts` | Les sessions de navigateur des tâches (Slice 7) : une au plus par tâche, dernière capture en mémoire |
+| `web.ts` | Le web lu par navigateur (`search_web`, `read_web_page`) : un Chromium par tâche, ouvert à la demande, fermé avec elle |
 | `files.ts` | Une image d'une tâche, en lecture seule, pour le fil du dashboard (Slice 7) |
 | `project-dir.ts` | `checkProjectDir` : le dossier de projet d'une tâche, vérifié avant de la créer |
 | `pick-directory.ts` | Le sélecteur de dossier du système, ouvert par le daemon à la demande du dashboard |
@@ -165,6 +166,34 @@ arrivent déjà découpés, expurgés et plafonnés (`OutputBatcher`, dans
 reconnexion : un terminal rechargé retrouve ce qu'il avait. Prouvé par
 `tests/unit/exec-output.test.ts`, avec une vraie commande qui écrit une clé en
 deux fois.
+
+## Le web lu par un navigateur
+
+`search_web` et `read_web_page` (paquet `tools`) passent par `WebReaders`
+(`web.ts`) : **au plus un Chromium par tâche**, ouvert à son premier appel,
+où les appels passent un par un. Il se ferme après deux minutes de repos
+(`WEB_IDLE_MS`) — l'appel suivant en rouvre un —, à la fin de la tâche, avant
+sa conclusion, et à l'arrêt du daemon ; tué net, c'est la garde des processus
+qui le tue. La garde réseau est celle du Navigator (`defaultBrowserGuard`).
+
+C'est à part des sessions du Navigator (`browsers.ts`), exprès : celles-là
+s'approuvent et se pilotent ; ici l'agent ne fait que charger une adresse
+publique et lire son texte, sous la politique d'`http_fetch`. Seul le
+Researcher a ces outils ; l'orchestrateur lui délègue ce qui demande
+l'internet, et sa consigne le dit.
+
+`MIDGAARD_WEB_BROWSER` choisit le navigateur : `window` (défaut), une
+**fenêtre Chromium visible** sur l'écran de l'utilisateur pendant que la tâche
+cherche, ou `headless`, sans fenêtre. Le défaut est la fenêtre parce que les
+moteurs de recherche refusent un navigateur sans fenêtre — constaté, tableau
+dans le README de `@midgaard/browser`. Sur un poste sans écran, la fenêtre ne
+s'ouvre pas : le daemon retombe sans fenêtre et le dit une fois au journal.
+Rien n'est contourné dans aucun des deux modes.
+
+Prouvé par `tests/unit/web-tools.test.ts` : un Chromium pour deux appels
+simultanés, aucun processus après la tâche (compté au système), la boucle
+locale refusée par la vraie garde, le repli, et un Researcher qui cherche puis
+lit dans un vrai daemon sans qu'aucune approbation soit demandée.
 
 ## Choisir le dossier d'une tâche dans l'explorateur
 
@@ -376,4 +405,5 @@ Lues **uniquement** par `main.ts`, via `loadConfig`.
 | `MIDGAARD_APPROVAL_TTL_S` | `600` | Délai de décision humaine ; au-delà la tâche passe en `timed_out` |
 | `MIDGAARD_INPUT_TTL_S` | `7200` | Attente maximale d'une réponse de l'utilisateur dans une conversation ; au-delà, `timed_out` |
 | `MIDGAARD_MAX_ACTIVE_SUBTASKS` | `4` | Sous-tâches actives d'un orchestrateur en même temps (Slice 8) |
+| `MIDGAARD_WEB_BROWSER` | `window` | Navigateur de `search_web` et `read_web_page` : `window`, une fenêtre Chromium visible (les moteurs de recherche refusent le navigateur sans fenêtre), ou `headless` |
 | `MIDGAARD_DASHBOARD_DIR` | `apps/dashboard/dist` | Fichiers compilés du dashboard |

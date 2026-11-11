@@ -36,6 +36,48 @@ Chromium doit être installé une fois : `npx playwright install chromium`.
 La garde est **injectable** (`guard`) pour que les tests servent leur page
 locale ; le daemon passe toujours la vraie.
 
+## Lire et chercher, en texte
+
+À côté du pilotage par captures, la session sait lire **sans voir** : c'est ce
+que les outils `search_web` et `read_web_page` emploient, sans approbation
+puisque rien n'est cliqué ni saisi.
+
+```ts
+const session = await BrowserSession.open({ headless: false })   // une fenêtre visible
+await session.goto('https://example.org/')
+const { status, title, text } = await session.readPage()         // innerText, après les scripts
+const { engine, results } = await searchWeb(session, 'ma requête') // titre, adresse, extrait
+```
+
+`readPage` attend le calme du réseau (borné), puis relève le texte visible,
+coupé **dans la page** à `MAX_PAGE_CHARS`. `searchWeb` (`search.ts`, aussi
+exporté par `@midgaard/browser/search`, qui ne charge pas Playwright) charge
+la page de résultats de chaque moteur dans l'ordre et rend ceux du premier
+qui en donne ; si aucun n'en donne, il **lève** en nommant ce que chacun a
+répondu.
+
+### Ce que les sites répondent — constaté le 2026-11-11, sous macOS
+
+Le navigateur ne masque rien : il s'annonce piloté (`navigator.webdriver`),
+et aucune vérification anti-robot n'est résolue ni contournée. Ce qui change
+la réponse des sites, c'est la **fenêtre** :
+
+| | Sans fenêtre (`headless`) | Avec fenêtre |
+|---|---|---|
+| DuckDuckGo | refus (page d'erreur 418) | 10 résultats justes |
+| Brave Search | captcha | 10 résultats justes |
+| Bing | 10 résultats **sans rapport avec la requête** | 2 résultats, puis aucun |
+| Une page ordinaire (playwright.dev, peeringdb.com) | lue | lue |
+| Une page sous vérification Cloudflare stricte (npmjs.com) | « Just a moment… », 403 | la même |
+
+D'où trois choix : DuckDuckGo puis Brave, **pas Bing** (des résultats faux
+sont pires qu'un refus) ; la fenêtre par défaut au daemon
+(`MIDGAARD_WEB_BROWSER`) ; et une page de vérification **annoncée comme
+telle** à l'agent, jamais rendue pour un contenu. Sur une demi-douzaine
+d'essais fenêtrés, une recherche a échoué une fois, connexion fermée par les
+deux moteurs, puis réussi aux essais suivants. Ces pages changent sans
+prévenir : les sélecteurs de `SEARCH_ENGINES` sont ce qui cassera en premier.
+
 ## Pourquoi un proxy, et pas l'interception de Playwright
 
 `route` jugerait un **nom**, que Chromium résoudrait ensuite lui-même : entre

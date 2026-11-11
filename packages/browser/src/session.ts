@@ -28,6 +28,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { chromium, type Browser, type BrowserContext, type BrowserServer, type Page } from 'playwright'
 import { assertPublicHost, BROWSER_KEYS, guardGroup, type BrowserKey } from '@midgaard/tools'
+import { BrowserError } from './errors.ts'
 import { startGuardedProxy, type GuardedProxy, type HostGuard, type ProxyRefusal } from './proxy.ts'
 
 /**
@@ -42,6 +43,22 @@ interface FocusTarget {
   getAttribute(name: string): string | null
 }
 declare const document: { activeElement: FocusTarget | null; body: unknown; documentElement: unknown }
+
+/**
+ * Ce que touchent, dans la page, les fonctions de lecture en texte
+ * ({@link BrowserSession.readPage}, {@link BrowserSession.collect}) : même
+ * raison que ci-dessus, le paquet n'a pas la bibliothèque DOM.
+ */
+interface TextNode {
+  innerText?: string
+  href?: string
+  closest(selector: string): TextNode | null
+  querySelector(selector: string): TextNode | null
+}
+interface TextDocument {
+  body: TextNode | null
+  querySelectorAll(selector: string): ArrayLike<TextNode>
+}
 
 /** Taille de la fenêtre : celle d'un portable courant, lisible dans une capture. */
 /**
@@ -72,12 +89,36 @@ const SETTLE_MS = 1_000
 export const ALLOWED_KEYS = BROWSER_KEYS
 export type AllowedKey = BrowserKey
 
-/** Un refus de la session, à rendre à l'agent tel quel. En anglais : c'est le modèle qui le lit. */
-export class BrowserError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'BrowserError'
-  }
+export { BrowserError }
+
+/**
+ * Attente maximale du calme du réseau avant de lire le texte d'une page : une
+ * page moderne remplit son contenu après le chargement du document. Bornée,
+ * parce qu'une page qui interroge son serveur en boucle ne se calme jamais.
+ */
+const READ_SETTLE_MS = 6_000
+/**
+ * Taille maximale du texte relevé dans une page, en caractères. Coupé **dans
+ * la page** : un document de plusieurs dizaines de mégaoctets ne doit pas
+ * traverser vers le daemon pour y être tronqué.
+ */
+export const MAX_PAGE_CHARS = 400_000
+
+/** Le texte visible d'une page, tel que {@link BrowserSession.readPage} le relève. */
+export interface PageText extends PageState {
+  /** Code HTTP de la dernière navigation ; `null` si le navigateur ne l'a pas su. */
+  status: number | null
+  /** Texte visible (`innerText`), écrit par la page : **non fiable**. */
+  text: string
+  /** Vrai si le texte a été coupé à {@link MAX_PAGE_CHARS}. */
+  truncated: boolean
+}
+
+/** Un lien relevé dans une page par {@link BrowserSession.collect}. */
+export interface CollectedLink {
+  title: string
+  href: string
+  snippet: string
 }
 
 /** Ce que la session a vu après une action. */
@@ -93,6 +134,14 @@ export interface BrowserSessionOptions {
   viewport?: { width: number; height: number } | undefined
   /** Journal du daemon : dit une fois que la garde des processus manque. */
   log?: ((message: string) => void) | undefined
+  /**
+   * Sans fenêtre (défaut), ou avec une fenêtre visible sur l'écran de
+   * l'utilisateur (`false`). Constaté (2026-11-11) : des sites et des moteurs
+   * de recherche refusent un navigateur sans fenêtre et répondent au même,
+   * fenêtré. Rien d'autre ne change : le navigateur s'annonce toujours piloté
+   * (`navigator.webdriver`), et aucune vérification anti-robot n'est contournée.
+   */
+  headless?: boolean | undefined
 }
 
 /** Une session ouverte. */
@@ -105,6 +154,8 @@ export class BrowserSession {
   private readonly release: () => void
   private readonly refusals: ProxyRefusal[]
   private closed = false
+  /** Code HTTP de la dernière navigation demandée par {@link BrowserSession.goto}. */
+  private lastStatus: number | null = null
   /** Pid de Chromium, chef de son groupe de processus. */
   readonly pid: number
 
@@ -139,7 +190,7 @@ export class BrowserSession {
     let server: BrowserServer
     try {
       server = await chromium.launchServer({
-        headless: true,
+        headless: options.headless ?? true,
         proxy: { server: `http://127.0.0.1:${proxy.port}` },
         args: [
           // Chromium contourne d'office un proxy pour la boucle locale.
@@ -212,8 +263,10 @@ export class BrowserSession {
       throw new BrowserError(`only http:// and https:// addresses can be opened, not ${parsed.protocol}`)
     }
     const before = this.refusals.length
+    this.lastStatus = null
     try {
-      await this.page.goto(parsed.href, { waitUntil: 'domcontentloaded' })
+      const response = await this.page.goto(parsed.href, { waitUntil: 'domcontentloaded' })
+      this.lastStatus = response?.status() ?? null
     } catch (e) {
       throw this.explain(e, before, parsed.hostname)
     }
@@ -248,6 +301,70 @@ export class BrowserSession {
       })
       .catch(() => null)
     return described ? described.slice(0, 200) : null
+  }
+
+  /**
+   * Le texte visible de la page, pour un agent qui lit sans voir (outil
+   * `read_web_page`). Attend d'abord que le réseau se calme, un temps borné :
+   * le contenu d'une page moderne arrive après son document.
+   *
+   * C'est `innerText` : ce qu'un lecteur verrait, sans scripts ni styles, les
+   * éléments cachés exclus. Écrit par la page, donc **non fiable**.
+   */
+  async readPage(): Promise<PageText> {
+    this.ensureOpen()
+    await this.page.waitForLoadState('networkidle', { timeout: READ_SETTLE_MS }).catch(() => {})
+    const read = await this.page
+      .evaluate((max) => {
+        const text = (globalThis as unknown as { document: TextDocument }).document.body?.innerText ?? ''
+        return { text: text.slice(0, max), truncated: text.length > max }
+      }, MAX_PAGE_CHARS)
+      .catch(() => ({ text: '', truncated: false }))
+    return { ...(await this.state()), status: this.lastStatus, ...read }
+  }
+
+  /**
+   * Attend qu'un élément apparaisse dans la page, un temps borné. Ne lève
+   * pas : une page qui ne le montre jamais est lue telle qu'elle est.
+   */
+  async waitFor(selector: string, timeoutMs: number): Promise<void> {
+    this.ensureOpen()
+    await this.page.waitForSelector(selector, { timeout: timeoutMs }).catch(() => {})
+  }
+
+  /**
+   * Relève des liens dans la page, par sélecteurs CSS : le titre et l'adresse
+   * de chaque lien, et un extrait pris dans son conteneur. Sert à lire une
+   * page de résultats d'un moteur de recherche (`search.ts`).
+   *
+   * @param spec.link      sélecteur des liens
+   * @param spec.title     sélecteur du titre **dans** le lien ; le texte du lien entier sinon
+   * @param spec.container sélecteur du conteneur d'un résultat, remonté depuis le lien
+   * @param spec.snippet   sélecteur de l'extrait, dans ce conteneur
+   * @param max            nombre maximal de liens relevés
+   */
+  async collect(
+    spec: { link: string; title?: string | undefined; container: string; snippet: string },
+    max: number,
+  ): Promise<CollectedLink[]> {
+    this.ensureOpen()
+    return this.page
+      .evaluate(
+        ({ spec, max }) => {
+          const doc = (globalThis as unknown as { document: TextDocument }).document
+          const out: { title: string; href: string; snippet: string }[] = []
+          for (const a of Array.from(doc.querySelectorAll(spec.link))) {
+            if (out.length >= max) break
+            const title = ((spec.title ? a.querySelector(spec.title)?.innerText : a.innerText) ?? '').trim()
+            if (!title || !a.href) continue
+            const snippet = a.closest(spec.container)?.querySelector(spec.snippet)?.innerText ?? ''
+            out.push({ title: title.slice(0, 300), href: a.href.slice(0, 2000), snippet: snippet.trim().slice(0, 600) })
+          }
+          return out
+        },
+        { spec, max },
+      )
+      .catch(() => [])
   }
 
   /** Taille de la fenêtre, en pixels : le repère des clics. */

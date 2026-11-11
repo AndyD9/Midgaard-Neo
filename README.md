@@ -9,8 +9,10 @@ une tâche : un plafond de dépense se pose chez le fournisseur.
 Les agents ont trois capacités, et rien d'autre :
 
 - **le terminal** — lire, écrire et lancer des commandes dans un worktree Git ;
-- **la navigation web** — `http_fetch`, lecture d'images, et un Chromium isolé
-  piloté sous approbation ;
+- **la navigation web** — une recherche et une lecture de pages faites
+  d'elles-mêmes par un vrai navigateur (`search_web`, `read_web_page`),
+  `http_fetch`, la lecture d'images, et un Chromium isolé piloté sous
+  approbation ;
 - **des outils MCP** — les serveurs MCP que tu déclares et attaches à un profil.
 
 ```text

@@ -4,7 +4,9 @@ Harness local d'agents (paquets `@midgaard/*`) : l'humain parle à un
 **orchestrateur intégré** au daemon, qui délègue à des agents exécutants ; le
 harness les observe et soumet leurs actes sensibles à une approbation humaine.
 Trois capacités : le terminal (`exec`, lecture et écriture dans un worktree
-Git), la navigation web (Chromium isolé, `read_image`) et les outils de
+Git), la navigation web (recherche et lecture de pages par un Chromium isolé,
+`search_web` et `read_web_page` ; le même Chromium piloté sous approbation ;
+`read_image`) et les outils de
 serveurs MCP déclarés par l'humain. L'interface est le dashboard servi par le
 daemon, ouvert dans un navigateur ou dans la fenêtre desktop.
 
@@ -55,9 +57,9 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `packages/persistence` | SQLite (`node:sqlite`), migrations, `record()` |
 | `packages/daemon` | API HTTP locale, WebSocket, bus d'événements, gérant des tâches, moteurs |
 | `packages/agent-runtime` | Boucle d'un agent : approbations, résultat structuré ; aucune limite de tâche |
-| `packages/tools` | Outils des agents : lecture, écriture dans le worktree, `exec`, `http_fetch`, navigateur, délégation, outils MCP |
+| `packages/tools` | Outils des agents : lecture, écriture dans le worktree, `exec`, `http_fetch`, recherche et lecture du web par navigateur, navigateur piloté, délégation, outils MCP |
 | `packages/workspace` | Worktrees Git des agents écrivants |
-| `packages/browser` | Chromium jetable derrière un proxy gardé |
+| `packages/browser` | Chromium jetable derrière un proxy gardé ; lecture d'une page en texte, recherche sur un moteur public |
 | `packages/mcp-client` | Client MCP du daemon : serveurs stdio déclarés par l'humain |
 | `packages/providers` | Adaptateurs de modèles (compatible OpenAI, Gemini), tarifs |
 | `packages/secrets` | Coffre système pour les clés d'API |
@@ -87,7 +89,7 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme ; `--prefix` couvre tout ce qui suit, jamais un interpréteur nu), `revoke` |
 | `npm run harness -- mcp` | Serveurs MCP des agents : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove`, `attach`/`detach` (à un profil) |
 | `npm test` | Enchaîne `test:unit`, `test:lock`, `test:restart`, `test:developer`, `test:orchestrator`, `test:security` |
-| `npm run test:unit` | ~15 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), client MCP (vrai serveur stdio, processus comptés) |
+| `npm run test:unit` | ~25 s — machine à états, persistance, adaptateurs, coûts, outils, boucle, coffres, worktrees (vrais dépôts Git), navigateur (vrai Chromium), recherche et lecture du web (fausses pages locales, Chromium compté), sélecteur de dossier (faux dialogue), client MCP (vrai serveur stdio, processus comptés) |
 | `npm run test:vault` | ~1 s — les coffres seuls, sur le coffre réel de la machine |
 | `npm run test:worktrees` | ~8 s — worktrees, écriture et `exec` seuls, sortie en direct et lecture d'une image d'une tâche comprises (rejoués en CI sur trois plateformes) |
 | `npm run test:lock` | ~30 s — instance unique du daemon sous concurrence |
@@ -241,6 +243,19 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   variable `PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK` héritée par le
   daemon rouvrait `127.0.0.1` à une page — vu. Chromium est confié à la garde
   d'`exec` et tué par groupe à la fermeture.
+- **`search_web` et `read_web_page` ne cliquent ni ne saisissent, et ne
+  contournent rien.** Ils chargent une adresse publique dans le Chromium isolé
+  et rendent du texte, sous la politique d'`http_fetch` — c'est pour cela
+  qu'aucune session ne s'approuve ; leur donner un clic ou une saisie les
+  ferait retomber sous la règle du Navigator. Le navigateur s'annonce piloté :
+  **ni masquage d'empreinte, ni résolution de captcha, sans demande
+  explicite**. Une page de vérification anti-robot est **annoncée comme
+  telle** à l'agent, et une recherche sans résultat relevé **échoue en le
+  disant** — jamais une liste vide. Bing est écarté exprès : sans fenêtre, il
+  rendait dix résultats sans rapport avec la requête, que l'agent aurait
+  cités. La fenêtre visible est le défaut (`MIDGAARD_WEB_BROWSER`) parce que
+  les moteurs refusent le navigateur sans fenêtre — constaté ; **une suite de
+  tests passe `headless`** et ses propres moteurs.
 - **Une saisie au navigateur est lue par l'humain avant de partir** : approuvée
   une à une, ou annoncée à l'ouverture de la session (`planned_inputs`) et
   tapée une fois, identique à la lettre. Un clic n'est jamais approuvé, et la
@@ -411,7 +426,13 @@ Rien ne doit être écrit comme si ça l'avait été :
    ni ouverts ; `harness.cmd` n'a jamais tourné. Sous macOS, le `.app` a été
    lancé et son daemon interrogé, mais la fenêtre n'a pas été regardée, et
    aucune installation par le `.dmg` n'a été faite.
-5. **Le sélecteur de dossier réel, au-delà de son ouverture sous macOS.** Le
+5. **`search_web` et `read_web_page` avec un vrai modèle.** Les deux outils
+   ont été lancés à la main sur le vrai web (DuckDuckGo, Brave, des pages
+   lues, une vérification Cloudflare annoncée), et un Researcher les enchaîne
+   face au faux fournisseur ; aucune tâche d'un vrai modèle ne s'en est
+   servie. Rien n'a été essayé hors de macOS, ni le repli sans fenêtre sur un
+   vrai poste sans écran.
+6. **Le sélecteur de dossier réel, au-delà de son ouverture sous macOS.** Le
    dialogue `osascript` a été ouvert puis tué à l'abandon ; un dossier choisi
    à la souris, et la fenêtre au premier plan, n'ont pas été regardés. Les
    dialogues Windows (PowerShell) et Linux (zenity, kdialog) n'ont jamais été

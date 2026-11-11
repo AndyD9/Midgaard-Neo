@@ -10,5 +10,9 @@
  */
 export { startGuardedProxy, splitHostPort } from './proxy.ts'
 export type { GuardedProxy, HostGuard, ProxyRefusal } from './proxy.ts'
-export { ALLOWED_KEYS, BrowserError, BrowserSession, DEFAULT_VIEWPORT, NAVIGATION_TIMEOUT_MS } from './session.ts'
-export type { AllowedKey, BrowserSessionOptions, PageState } from './session.ts'
+export {
+  ALLOWED_KEYS, BrowserError, BrowserSession, DEFAULT_VIEWPORT, MAX_PAGE_CHARS, NAVIGATION_TIMEOUT_MS,
+} from './session.ts'
+export type { AllowedKey, BrowserSessionOptions, CollectedLink, PageState, PageText } from './session.ts'
+export { MAX_SEARCH_RESULTS, SEARCH_ENGINES, searchEngineHost, searchWeb } from './search.ts'
+export type { SearchEngine, SearchOutcome, SearchResult } from './search.ts'

@@ -36,14 +36,17 @@ import { createRedactor, harnessCommand, isTerminal, type Usage } from '@midgaar
 import { agentIdentity, commitAll, createWorktree, diffWorktree, inspectRepository, WorkspaceError } from '@midgaard/workspace'
 import { createAdapter, envVarFor, type ModelCapabilities } from '@midgaard/providers'
 import { resolveApiKey, type SecretVault } from '@midgaard/secrets'
-import { ASK_PARENT, BROWSER_TOOLS, VISION_TOOLS, type Tool, type ToolContext } from '@midgaard/tools'
+import { ASK_PARENT, BROWSER_TOOLS, VISION_TOOLS, WEB_TOOLS, type Tool, type ToolContext } from '@midgaard/tools'
 import type { BrowserSessions } from '../browsers.ts'
+import type { WebReaders } from '../web.ts'
 import { MCP_CAPABLE_KINDS } from '../agents.ts'
 import type { McpSessions } from '../mcp-sessions.ts'
 import { execRulesForTask } from '../workspaces.ts'
 
 /** Un profil qui a l'un de ces outils reçoit le navigateur de sa tâche (Slice 7). */
 const hasBrowser = (tools: readonly string[]): boolean => tools.some((t) => (BROWSER_TOOLS as readonly string[]).includes(t))
+/** Vrai si le profil a un outil du web lu par navigateur (`search_web`, `read_web_page`). */
+const hasWeb = (tools: readonly string[]): boolean => tools.some((t) => (WEB_TOOLS as readonly string[]).includes(t))
 
 /**
  * Le modèle de la tâche lit-il les images ? (Slice 7, décision 2.)
@@ -153,6 +156,11 @@ export interface AgentEngineDeps {
    * reçoit de navigateur, et ses outils refusent.
    */
   browsers?: BrowserSessions | undefined
+  /**
+   * Les navigateurs de lecture du web (`search_web`, `read_web_page`). Absent,
+   * aucun profil n'en reçoit, et ces outils refusent.
+   */
+  web?: WebReaders | undefined
   /**
    * Les serveurs MCP des tâches (Slice 8). Absent, un profil qui a des
    * serveurs MCP échoue au départ, en le disant.
@@ -451,6 +459,7 @@ export class AgentEngine implements TaskEngine {
       // session close, puis la fin de la tâche, et aucun Chromium ne survit à
       // une tâche finie, même le temps d'un commit.
       await this.deps.browsers?.endTask(task.id, 'the task ended')
+      await this.deps.web?.endTask(task.id)
       // Les serveurs MCP aussi : aucun processus d'une tâche finie ne doit
       // pouvoir écrire pendant le commit de son travail.
       await this.deps.mcp?.endTask(task.id)
@@ -466,6 +475,7 @@ export class AgentEngine implements TaskEngine {
     } finally {
       // Filet pour le chemin d'erreur : sans effet si la session est déjà close.
       await this.deps.browsers?.endTask(task.id, 'the task ended').catch(() => {})
+      await this.deps.web?.endTask(task.id).catch(() => {})
       await this.deps.mcp?.endTask(task.id).catch(() => {})
       this.running.delete(task.id)
       // Conservé dans tous les cas, jamais retiré : ce qu'il contient est
@@ -638,6 +648,8 @@ export class AgentEngine implements TaskEngine {
         // Le navigateur n'est posé que pour un profil qui a ses outils
         // (Slice 7) : fermé par défaut, comme la délégation.
         browser: hasBrowser(agent.tools) ? this.deps.browsers?.portFor(task.id, redact) : undefined,
+        // Le web lu par navigateur, de même : au profil qui en a les outils.
+        web: hasWeb(agent.tools) ? this.deps.web?.portFor(task.id) : undefined,
         log: ctx.log,
       },
       redact,

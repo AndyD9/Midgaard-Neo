@@ -43,6 +43,8 @@ import { EventBus } from './bus.ts'
 import { installation } from './installation.ts'
 import { AgentEngine } from './engines/agent.ts'
 import { BrowserSessions } from './browsers.ts'
+import { WebReaders } from './web.ts'
+import type { SearchEngine } from '@midgaard/browser/search'
 import { McpSessions } from './mcp-sessions.ts'
 import type { HostGuard } from '@midgaard/browser'
 import type { ProviderServiceDeps } from './providers.ts'
@@ -118,6 +120,11 @@ export interface StartOptions {
    */
   browserGuard?: HostGuard | undefined
   /**
+   * Moteurs de recherche de `search_web`. Pour les tests seulement, qui
+   * servent une fausse page de résultats ; `main.ts` ne les pose jamais.
+   */
+  searchEngines?: readonly SearchEngine[] | undefined
+  /**
    * Sélecteur de dossier (`POST /api/dialogs/directory`). Par défaut, celui du
    * système. Les tests passent le leur : un daemon de test ne doit jamais
    * ouvrir une fenêtre sur l'écran de qui lance la suite.
@@ -190,6 +197,9 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
   // Les navigateurs isolés des tâches (Slice 7) : un par tâche au plus, fermés
   // avec elle, et tous à l'arrêt du daemon.
   const browsers = new BrowserSessions({ bus, config, log, guard: options.browserGuard })
+  // Le web lu par navigateur (`search_web`, `read_web_page`) : un Chromium par
+  // tâche, ouvert à son premier appel, fermé avec elle.
+  const web = new WebReaders({ config, log, guard: options.browserGuard, engines: options.searchEngines })
   // Les serveurs MCP des tâches (Slice 8) : lancés au départ d'une tâche dont
   // le profil en a, fermés à sa fin, et tous à l'arrêt du daemon.
   const mcp = new McpSessions({ store, config, vault, env: options.env ?? {}, log })
@@ -207,6 +217,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
         pricing: () => pricing,
         env: options.env ?? {},
         browsers,
+        web,
         mcp,
       }),
     )
@@ -314,6 +325,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     // de Chromium d'abord ; un processus qui sortirait avant serait rattrapé
     // par la garde des processus, comme après un `SIGKILL`.
     void browsers.closeAll('the harness stopped')
+    void web.closeAll()
     void mcp.closeAll()
     stream.close()
     server.closeAllConnections()
