@@ -38,7 +38,6 @@
  * | GET  | `/api/agents` | Profils d'agents, en vue : `enabled` et `disabled_reason` disent s'ils peuvent recevoir une tâche maintenant | 200 |
  * | GET  | `/api/agents/:id` | Un profil, en vue | 200, 404 |
  * | PATCH | `/api/agents/:id` | Fournisseur et modèle d'un profil | 200, 400, 404, 409 |
- * | PUT  | `/api/agents/:id/limits` | Limites d'un profil, journalisées (Slice 8) | 200, 400, 404, 409 |
  * | PUT  | `/api/agents/:id/mcp` | Serveurs MCP d'un profil, liste complète (Slice 8) | 200, 400, 404, 409 |
  * | GET  | `/api/providers` | Fournisseurs **sans aucune clé** | 200 |
  * | POST | `/api/providers` | Déclare un fournisseur, dépose sa clé au coffre | 200, 400, 500 |
@@ -71,7 +70,6 @@ import {
   mcpAllowRequestSchema,
   postMessageRequestSchema,
   removeWorkspaceRequestSchema,
-  setAgentLimitsRequestSchema,
   setAgentMcpRequestSchema,
   updateAgentRequestSchema,
   upsertMcpServerRequestSchema,
@@ -104,7 +102,7 @@ import {
 import { checkEnvelope, checkToken, type SecurityContext } from './security.ts'
 import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './workspaces.ts'
 import { FileAccessError, taskImage } from './files.ts'
-import { setAgentLimits, setAgentMcpServers, updateAgentModel } from './agents.ts'
+import { setAgentMcpServers, updateAgentModel } from './agents.ts'
 import { checkProjectDir } from './project-dir.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
@@ -408,7 +406,6 @@ async function handleTasks(
         agentId: parsed.data.agent_id,
         context: parsed.data.context ?? null,
         projectDir,
-        requestedLimits: parsed.data.limits,
         durationS: parsed.data.duration_s,
         needsApproval: parsed.data.needs_approval,
         conversation: parsed.data.conversation,
@@ -555,15 +552,6 @@ async function handleAgents(
   action: string | undefined,
   req: IncomingMessage,
 ): Promise<void> {
-  if (id && action === 'limits') {
-    if (method !== 'PUT') return send(res, 405, { error: 'method_not_allowed' })
-    const parsed = setAgentLimitsRequestSchema.safeParse(await readJson(req))
-    if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
-    const { by, ...asked } = parsed.data
-    const outcome = setAgentLimits(deps.store, id, asked, by, deps.log)
-    if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
-    return send(res, 200, { agent: deps.tasks.agentView(outcome) })
-  }
   if (id && action === 'mcp') {
     if (method !== 'PUT') return send(res, 405, { error: 'method_not_allowed' })
     const parsed = setAgentMcpRequestSchema.safeParse(await readJson(req))

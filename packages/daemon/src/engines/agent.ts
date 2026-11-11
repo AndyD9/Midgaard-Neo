@@ -425,7 +425,6 @@ export class AgentEngine implements TaskEngine {
         // qui n'a personne à qui demander, ne le voie jamais.
         agent: {
           ...agent,
-          limits: task.limits,
           tools,
         },
         delegated: task.parent_task_id !== null,
@@ -810,8 +809,6 @@ export class AgentEngine implements TaskEngine {
           'send_message, accept a proposal with accept_result, or cancel_task, before you finish.'
         )
       },
-
-      treeBudget: () => ctx.treeBudget(taskId),
 
       isCancelled: () => {
         if (state.cancelled) return true

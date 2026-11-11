@@ -21,7 +21,7 @@
  */
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Agent, AgentLimits, TaskMode } from '@midgaard/contracts'
+import type { Agent, TaskMode } from '@midgaard/contracts'
 import type { Message } from '@midgaard/providers'
 
 /** Dossiers écartés de l'arborescence : beaucoup d'entrées, aucune information. */
@@ -86,9 +86,6 @@ export interface ContextInput {
   context: string | null
   root: string
   tree: string
-  limits: AgentLimits
-  /** Vrai si le budget en dollars est réellement applicable. */
-  budgetEnforceable: boolean
   /** Le worktree, pour un agent écrivant ; absent pour un agent qui ne fait que lire. */
   workspace?: WorkspaceBrief | undefined
   /** Manière dont la tâche converse ; `oneshot` par défaut. */
@@ -129,7 +126,7 @@ const REVIEW_LINES = [
  *  - un texte sans outil **est** une réplique à l'utilisateur, qui répondra ;
  *  - `submit_result` reste la seule fin, quand l'utilisateur le demande ou que
  *    le travail est fait ;
- *  - le temps d'attente ne compte pas, les étapes et le budget si.
+ *  - chaque réplique est un appel de modèle payé : les garder courtes.
  */
 const CHAT_LINES = [
   'This task is a CONVERSATION with the human user, who reads everything you write.',
@@ -138,38 +135,26 @@ const CHAT_LINES = [
   '- The first user message below is the user\'s opening request; later ones are their replies.',
   '- Call submit_result only when the user asks you to conclude or the work is done. Its summary and details ' +
     'cover the whole conversation. Writing "I am done" does not end the conversation.',
-  '- Your step limit and budget cover the whole conversation, every reply included. Keep replies short.',
+  '- Every reply is a paid model call. Keep replies short.',
 ]
 
 /**
  * Compose les deux premiers messages : la consigne système, et la demande.
  *
- * **Les limites sont dites au modèle.** Elles seront appliquées par le code de
- * toute façon, mais un agent qui ignore qu'il n'a que douze étapes les dépense
- * à explorer, puis se fait couper sans avoir rien rendu. Lui dire son budget
- * change sa stratégie, pas seulement son information.
- *
- * Et quand le budget n'est **pas** applicable — tarif du modèle inconnu — on le
- * dit aussi, plutôt que d'annoncer un plafond qui n'opère pas.
+ * **Le harness ne borne plus la tâche, et la consigne le dit** : ni étapes, ni
+ * budget, ni délai ne l'arrêteront. Annoncer un plafond qui n'existe pas
+ * serait décrire au modèle ce qui n'est pas ; ne rien dire le laisserait
+ * explorer sans fin, aux frais de l'utilisateur. On lui dit donc ce qui est :
+ * chaque appel est payé, et rien d'autre que `submit_result` ne conclut.
  */
 export function buildMessages(input: ContextInput): Message[] {
-  const { limits } = input
-  const budgetLine = input.budgetEnforceable
-    ? `- Budget: ${limits.max_cost_usd} USD. The task stops when it is reached, even mid-work.`
-    : '- Budget: this model has no known price, so the USD budget cannot be enforced. ' +
-      'The step limit is what bounds this task.'
 
   const system = [
     input.agent.system_prompt,
     '',
-    'Operating limits, enforced by the harness:',
-    `- At most ${limits.max_steps} model steps. Each reply you make, with or without tool calls, is one step.`,
-    budgetLine,
-    input.mode === 'chat'
-      ? `- ${limits.timeout_s} seconds of working time in total, human approvals included; ` +
-        'time spent waiting for the user\'s reply is not counted.'
-      : `- ${limits.timeout_s} seconds wall clock in total, human approvals included.`,
-    `- At most ${limits.max_tool_calls_per_step} tool calls per step.`,
+    'Cost: the harness sets no step limit, budget or deadline on this task. Every reply you make is a model ' +
+      'call the user pays for, and only submit_result ends the task. Do what the objective needs, no more, ' +
+      'and call submit_result as soon as you have the answer.',
     '',
     ...(input.workspace ? workspaceLines(input.root, input.workspace, input.mode === 'review') : [
       `Project root (the only directory you can read): ${input.root}`,

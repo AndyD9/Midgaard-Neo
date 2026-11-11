@@ -24,7 +24,6 @@ import {
   isTerminal,
   type Agent,
   type AgentKind,
-  type AgentLimits,
   type Approval,
   type ApprovalStatus,
   type ConnectionTest,
@@ -160,7 +159,6 @@ function toTask(row: TaskRow): Task {
     error: row.error,
     agent_id: row.agent_id,
     context: row.context,
-    limits: JSON.parse(row.limits_json) as AgentLimits,
     usage: JSON.parse(row.usage_json) as Usage,
     project_dir: row.project_dir,
     parent_task_id: row.parent_task_id,
@@ -222,6 +220,15 @@ function restrictDatabaseFiles(dbPath: string, log: (msg: string) => void): void
  * Dépôt unique du harness. Une instance par processus : `node:sqlite` est
  * synchrone et ne demande donc aucun pool de connexions.
  */
+/**
+ * Ce qu'on écrit dans les colonnes `limits_json` (tâches, profils, agents
+ * créés). Midgaard ne borne plus une tâche (décision de l'auteur,
+ * 2026-11-11) ; les colonnes restent, `NOT NULL`, parce qu'une migration
+ * publiée ne se modifie plus. Ce qu'une base plus ancienne y a rangé n'est
+ * plus lu.
+ */
+const NO_LIMITS = '{}'
+
 export class HarnessStore {
   readonly db: DatabaseSync
 
@@ -356,7 +363,6 @@ export class HarnessStore {
     agentId: string
     context: string | null
     projectDir: string | null
-    limits: AgentLimits
     durationS: number
     stepsTotal: number
     needsApproval: boolean
@@ -387,7 +393,7 @@ export class HarnessStore {
           project_dir: input.projectDir,
           parent_task_id: input.parentTaskId ?? null,
           mode: input.mode ?? 'oneshot',
-          limits: JSON.stringify(input.limits),
+          limits: NO_LIMITS,
           usage: JSON.stringify(emptyUsage()),
         })
       const event = this.insertEvent(
@@ -400,7 +406,6 @@ export class HarnessStore {
           payload: {
             objective: input.objective,
             agent_id: input.agentId,
-            limits: input.limits,
             ...(input.parentTaskId ? { parent_task_id: input.parentTaskId } : {}),
             // Le mode aussi, mais seulement quand il n'est pas celui de toujours :
             // un task.created d'avant la Slice 6 et un d'après se lisent pareil.
@@ -816,7 +821,6 @@ export class HarnessStore {
     model: string | null
     systemPrompt: string
     tools: string[]
-    limits: AgentLimits
     enabled: boolean
   }): Agent {
     const now = new Date().toISOString()
@@ -841,7 +845,7 @@ export class HarnessStore {
         model: input.model,
         system_prompt: input.systemPrompt,
         tools: JSON.stringify(input.tools),
-        limits: JSON.stringify(input.limits),
+        limits: NO_LIMITS,
         enabled: input.enabled ? 1 : 0,
         now,
       })
@@ -890,20 +894,6 @@ export class HarnessStore {
   }
 
   /**
-   * Règle les limites d'un profil (Slice 8), sans toucher au reste. Les règles
-   * — bornes, profil simulé — sont celles de l'appelant (`daemon/src/agents.ts`).
-   * Les tâches existantes gardent les leurs : elles sont copiées à la création.
-   *
-   * @returns le profil après coup, ou `null` s'il n'existe pas
-   */
-  setAgentLimits(id: string, limits: AgentLimits): Agent | null {
-    const info = this.db
-      .prepare('UPDATE agents SET limits_json = :l, updated_at = :now WHERE id = :id')
-      .run({ id, l: JSON.stringify(limits), now: new Date().toISOString() })
-    return info.changes === 1 ? this.getAgent(id) : null
-  }
-
-  /**
    * Règle les serveurs MCP d'un profil (Slice 8), sans toucher au reste. Les
    * règles — le serveur existe, le profil peut en avoir — sont celles de
    * l'appelant (`daemon/src/agents.ts`).
@@ -941,7 +931,7 @@ export class HarnessStore {
         model: input.model,
         role: input.role,
         mcp: JSON.stringify(input.mcp_servers),
-        limits: JSON.stringify(input.limits),
+        limits: NO_LIMITS,
         now: new Date().toISOString(),
       })
     return this.getCreatedAgent(input.id)!
@@ -1530,7 +1520,6 @@ function toCreatedAgent(row: CreatedAgentRow): CreatedAgent {
     model: row.model,
     role: row.role,
     mcp_servers: JSON.parse(row.mcp_servers_json) as string[],
-    limits: JSON.parse(row.limits_json) as AgentLimits,
     created_at: row.created_at,
   }
 }
@@ -1607,7 +1596,6 @@ function toAgent(row: AgentRow): Agent {
     model: row.model,
     system_prompt: row.system_prompt,
     tools: JSON.parse(row.tools_json) as string[],
-    limits: JSON.parse(row.limits_json) as AgentLimits,
     enabled: row.enabled === 1,
     vision: row.vision === null ? null : row.vision === 1,
     mcp_servers: JSON.parse(row.mcp_servers_json) as string[],

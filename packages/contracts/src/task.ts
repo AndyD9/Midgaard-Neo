@@ -21,7 +21,6 @@
  */
 import { z } from 'zod'
 import { taskWorkspaceSchema } from './workspace.ts'
-import { agentLimitsSchema } from './agent.ts'
 import { usageSchema } from './usage.ts'
 
 /** Statuts finaux : une tâche qui y entre n'en sort plus. */
@@ -223,8 +222,6 @@ export const taskSchema = z.object({
    * statut, comme `ended_at`.
    */
   awaiting_input: inputRequestSchema.nullable(),
-  /** Limites effectivement appliquées : celles du profil, abaissées par la délégation. */
-  limits: agentLimitsSchema,
   /** Consommation cumulée, et d'où vient le montant. Toujours présente, à zéro pour une tâche simulée. */
   usage: usageSchema,
   /** Vrai tant qu'une étape exige encore une approbation humaine. */

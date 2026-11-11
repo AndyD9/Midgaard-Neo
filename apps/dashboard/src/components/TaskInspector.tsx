@@ -103,7 +103,7 @@ export function TaskInspector({
               </button>
             </p>
           )}
-          <Field label="Progression" value={`étape ${task.step} sur ${task.steps_total}`} />
+          <Field label="Progression" value={task.steps_total > 0 ? `étape ${task.step} sur ${task.steps_total}` : `étape ${task.step}`} />
           <Field label="Créée" value={formatDateTime(task.created_at)} />
           <Field label="Terminée" value={task.ended_at ? formatDateTime(task.ended_at) : '—'} />
           {elapsed && <Field label="Temps écoulé" value={elapsed} />}
@@ -111,10 +111,6 @@ export function TaskInspector({
               tâche réelle laisserait croire à un minuteur qui n'existe pas. */}
           {task.agent_id === 'simulated' && <Field label="Durée simulée" value={`${task.duration_s} s`} />}
           {task.project_dir && <Field label="Racine de lecture" value={task.project_dir} />}
-          <Field
-            label="Limites"
-            value={`${task.limits.max_steps} étapes · ${task.limits.max_cost_usd} $ · ${task.limits.timeout_s} s`}
-          />
         </CardBody>
       </Card>
 

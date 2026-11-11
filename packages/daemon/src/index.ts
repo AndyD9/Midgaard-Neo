@@ -21,7 +21,6 @@ export {
   ensureBuiltinAgents,
   reconcileAgents,
   resolveCreatedAgent,
-  setAgentLimits,
   setAgentMcpServers,
   RESEARCHER_AGENT_ID,
   RESEARCHER_TOOLS,

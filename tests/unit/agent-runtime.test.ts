@@ -2,12 +2,12 @@
  * @file La boucle d'agent, éprouvée avec un faux fournisseur.
  *
  * Aucun modèle n'est appelé : l'adaptateur est une liste de réponses
- * préprogrammées. C'est ce qui permet de vérifier **l'invariant le plus cher du
- * produit** — qu'un budget arrête la tâche *avant* l'appel de trop — sans payer
- * pour le constater, et de le vérifier à chaque exécution de la suite.
+ * préprogrammées. C'est ce qui permet de vérifier ce que fait la boucle sans
+ * payer pour le constater, à chaque exécution de la suite.
  *
  * Ce que ces tests couvrent, et pourquoi :
- *  - le budget, les étapes, le délai et l'annulation arrêtent la boucle ;
+ *  - **rien n'arrête la boucle** hors son résultat, une annulation ou un
+ *    refus du fournisseur : ni étapes, ni budget, ni délai ;
  *  - seul `submit_result` termine une tâche, et un modèle bavard est relancé
  *    une fois avant d'échouer ;
  *  - un outil hors profil est refusé sans demander d'approbation ;
@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { describe, it } from 'node:test'
 import type { Agent, Usage } from '@midgaard/contracts'
-import { DEFAULT_RESEARCHER_LIMITS, createRedactor, emptyUsage } from '@midgaard/contracts'
+import { createRedactor, emptyUsage } from '@midgaard/contracts'
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '@midgaard/providers'
 import {
   buildMessages,
@@ -125,7 +125,6 @@ function agentWith(over: Partial<Agent> = {}): Agent {
     model: null,
     system_prompt: 'You are a researcher.',
     tools: ['read_file', 'http_fetch', 'submit_result'],
-    limits: { ...DEFAULT_RESEARCHER_LIMITS },
     enabled: true,
     vision: null,
     mcp_servers: [],
@@ -240,21 +239,6 @@ describe('fin de tâche', () => {
     assert.match(String(nudge.content), /cut off at the output limit \(\d+ tokens, reasoning included\)/)
   })
 
-  // Le même essai : l'orchestrateur écrit « The picture is complete » à
-  // l'étape 13, vérifie encore trois détails et atteint la limite de 16 étapes
-  // sans soumettre. Il ne voyait pas le compteur.
-  it('prévient l\'agent de ses deux derniers appels, et deux fois seulement', async () => {
-    const { calls, notes } = await run(
-      [{ toolCalls: [{ id: 'r1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }] }],
-      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 4 } } },
-    )
-    const warnings = calls.map((c) => c.messages.filter((m) => m.role === 'user' && /model call/.test(String(m.content))).length)
-    assert.deepEqual(warnings, [0, 0, 1, 2], 'rien avant, un à deux appels de la fin, un dernier au dernier')
-    assert.match(String(calls[2]!.messages.at(-1)!.content), /2 model calls left/)
-    assert.match(String(calls[3]!.messages.at(-1)!.content), /last model call/)
-    assert.equal(notes.filter((n) => /appel\(s\) de modèle : l'agent est invité à conclure/.test(n)).length, 2)
-  })
-
   it('dit quoi faire quand le modèle s\'arrête vraiment sans conclure', async () => {
     const { outcome } = await run([{ text: 'j\'ai fini, promis' }])
     const error = outcome.status === 'failed' ? outcome.error : ''
@@ -332,39 +316,6 @@ describe('conversation', () => {
     assert.equal(reply.content, 'ajoute une route /health', 'le message de l\'utilisateur, tel quel, sans cadre')
   })
 
-  it('ne compte pas le temps d\'attente dans le délai de la tâche', async () => {
-    // Une heure d'attente pour un délai de quelques minutes : sans la pause,
-    // la tâche expirerait au point de contrôle qui suit la réponse.
-    let clock = 0
-    const timeout = DEFAULT_RESEARCHER_LIMITS.timeout_s * 1000
-    const awaitInput: LoopHooks['awaitInput'] = async () => {
-      clock += timeout * 12
-      return { kind: 'message', text: 'continue' }
-    }
-    const { outcome } = await run([{ text: 'je réfléchis' }, { toolCalls: submit('fini') }], {
-      mode: 'chat',
-      hooks: { awaitInput },
-      now: () => clock,
-    })
-    assert.equal(outcome.status, 'completed', outcome.status !== 'completed' ? outcome.error : '')
-  })
-
-  it('compte en revanche le temps où la tâche travaille', async () => {
-    let clock = 0
-    const timeout = DEFAULT_RESEARCHER_LIMITS.timeout_s * 1000
-    const awaitInput: LoopHooks['awaitInput'] = async () => ({ kind: 'message', text: 'continue' })
-    const { outcome } = await run([{ text: 'je réfléchis' }, { toolCalls: submit('fini') }], {
-      mode: 'chat',
-      hooks: {
-        awaitInput,
-        // Le temps passe pendant que la tâche travaille, pas pendant qu'elle attend.
-        onUsage: () => void (clock += timeout),
-      },
-      now: () => clock,
-    })
-    assert.equal(outcome.status, 'timed_out')
-  })
-
   it('s\'arrête annulée quand l\'annulation arrive pendant l\'attente', async () => {
     const wait = replies([{ kind: 'cancelled' }])
     const { outcome, callCount } = await run([{ text: 'Que veux-tu ?' }], { mode: 'chat', hooks: { awaitInput: wait.awaitInput } })
@@ -377,22 +328,6 @@ describe('conversation', () => {
     const { outcome } = await run([{ text: 'Que veux-tu ?' }], { mode: 'chat', hooks: { awaitInput: wait.awaitInput } })
     assert.equal(outcome.status, 'timed_out')
     assert.match(outcome.status === 'timed_out' ? outcome.error : '', /2 heures/)
-  })
-
-  it('compte chaque réplique comme une étape : la conversation entière partage la limite', async () => {
-    const wait = replies([
-      { kind: 'message', text: 'un' },
-      { kind: 'message', text: 'deux' },
-      { kind: 'message', text: 'trois' },
-    ])
-    const { outcome, callCount } = await run([{ text: 'réplique' }], {
-      mode: 'chat',
-      agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 3 } },
-      hooks: { awaitInput: wait.awaitInput },
-    })
-    assert.equal(outcome.status, 'failed')
-    assert.match(outcome.status === 'failed' ? outcome.error : '', /limite de 3 étapes/)
-    assert.equal(callCount, 3)
   })
 
   it('n\'attend jamais pour une tâche oneshot, même si le crochet existe', async () => {
@@ -409,12 +344,10 @@ describe('conversation', () => {
       context: null,
       root: '/projet',
       tree: 'src/',
-      limits: DEFAULT_RESEARCHER_LIMITS,
-      budgetEnforceable: true,
     }
     const chat = buildMessages({ ...base, mode: 'chat' })
     assert.match(chat[0]!.content, /CONVERSATION with the human user/)
-    assert.match(chat[0]!.content, /waiting for the user's reply is not counted/)
+    assert.match(chat[0]!.content, /Every reply is a paid model call/)
     assert.match(chat[1]!.content, /# User's opening message\n\nbonjour/)
     assert.doesNotMatch(chat[1]!.content, /When you have the answer, call submit_result/)
     for (const message of chat) assert.doesNotMatch(message.content, /claude|anthropic/i)
@@ -532,17 +465,71 @@ describe('images rendues par un outil (Slice 7)', () => {
   })
 })
 
-describe('limites', () => {
-  it('arrête la tâche AVANT l\'appel qui dépasserait le budget', async () => {
-    // Trois appels à 0,40 $ : le budget de 1 $ est dépassé après le troisième.
-    // Ce qu'on vérifie, c'est qu'il n'y a pas de quatrième appel.
+describe('aucune limite', () => {
+  /** Un modèle qui lit sans jamais conclure : la réponse sur laquelle le faux fournisseur boucle. */
+  const turning = (usage?: Usage): Scripted => ({
+    text: 'je cherche',
+    toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }],
+    ...(usage ? { usage } : {}),
+  })
+
+  it('ni le nombre d\'étapes ni le coût n\'arrêtent la tâche : seule l\'annulation le fait', async () => {
+    // Quarante appels à 50 $ : bien au-delà de ce que bornaient les anciennes
+    // limites (12 étapes, 0,50 $). La tâche tourne tant que personne ne l'annule.
+    let checks = 0
+    const { outcome, callCount } = await run([turning(cost(50))], {
+      hooks: { isCancelled: () => ++checks > 40 },
+    })
+    assert.equal(outcome.status, 'cancelled', 'ni failed ni budget_exceeded')
+    assert.equal(callCount, 40, 'un appel par tour, jusqu\'à l\'annulation et pas un de plus')
+    assert.equal(outcome.usage.cost_usd, 2000, 'le coût reste mesuré, sans rien arrêter')
+    assert.match(outcome.status === 'cancelled' ? outcome.error : '', /annulation demandée — 40 appel\(s\) modèle/)
+  })
+
+  it('le temps qui passe n\'arrête pas la tâche', async () => {
+    // Un jour s'écoule à chaque appel de modèle : aucun délai n'existe plus.
+    let clock = 0
     const { outcome, callCount } = await run(
-      [{ text: 'je cherche', toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }], usage: cost(0.4) }],
-      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_cost_usd: 1 } } },
+      [turning(), turning(), turning(), { toolCalls: submit('fini') }],
+      { hooks: { onUsage: () => void (clock += 86_400_000) }, now: () => clock },
     )
-    assert.equal(outcome.status, 'budget_exceeded', 'et non failed : rien n\'a échoué')
-    assert.equal(callCount, 3, '0,40 × 3 = 1,20 ≥ 1 : le quatrième appel ne part pas')
-    assert.match(outcome.status === 'budget_exceeded' ? outcome.error : '', /budget de 1,?\.?00 \$ atteint — 3 appel\(s\) modèle, 1\.20 \$/)
+    assert.equal(outcome.status, 'completed', outcome.status !== 'completed' ? outcome.error : '')
+    assert.equal(callCount, 4)
+  })
+
+  it('un modèle sans tarif connu tourne comme un autre, sans note de budget', async () => {
+    const inconnu: Usage = { ...emptyUsage(), model_calls: 1, cost_source: 'unknown' }
+    const { outcome, notes } = await run([turning(inconnu), { toolCalls: submit('fini'), usage: inconnu }])
+    assert.equal(outcome.status, 'completed')
+    assert.equal(outcome.usage.cost_source, 'unknown', 'un coût inconnu reste dit inconnu, jamais 0 $')
+    assert.ok(!notes.some((n) => /budget|limite/.test(n)), notes.join(' | '))
+  })
+
+  it('un refus du fournisseur fait échouer la tâche, avec ce qu\'elle a consommé', async () => {
+    // C'est chez le fournisseur que se pose un plafond de dépense : son refus
+    // (solde épuisé, quota) est ce qui arrête une tâche que rien d'autre ne borne.
+    const root = makeRoot()
+    try {
+      const { adapter } = scriptedAdapter([turning(cost(1))])
+      let n = 0
+      const refusing: ProviderAdapter = {
+        ...adapter,
+        async complete(request) {
+          if (++n > 3) throw new Error('402 insufficient balance')
+          return adapter.complete(request)
+        },
+      }
+      const rec = recordingHooks()
+      const outcome = await runAgent({
+        agent: agentWith(), objective: 'o', context: null, adapter: refusing, tools: toolCtx(root),
+        hooks: rec.hooks, redact: (t) => t, signal: new AbortController().signal,
+      })
+      assert.equal(outcome.status, 'failed')
+      assert.match(outcome.status === 'failed' ? outcome.error : '', /appel modèle refusé : 402 insufficient balance/)
+      assert.equal(outcome.usage.cost_usd, 3)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('rend la consommation même quand la tâche échoue', async () => {
@@ -551,28 +538,11 @@ describe('limites', () => {
     assert.equal(outcome.usage.model_calls, 2)
   })
 
-  it('s\'arrête sur la limite d\'étapes, et le dit', async () => {
-    const { outcome, callCount } = await run(
-      [{ text: 'je réfléchis', toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }] }],
-      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 3 } } },
-    )
-    assert.equal(outcome.status, 'failed')
-    assert.equal(callCount, 3)
-    const error = outcome.status === 'failed' ? outcome.error : ''
-    assert.match(error, /3 étapes atteinte/)
-    // Les deux sorties proposées sont atteignables depuis une délégation.
-    assert.match(error, /relève max_steps/)
-    assert.match(error, /simplifie l'objectif/)
-  })
-
-  it('n\'applique pas de budget sur un modèle sans tarif, et prévient une seule fois', async () => {
-    const inconnu: Usage = { ...emptyUsage(), model_calls: 1, cost_source: 'unknown' }
-    const { outcome, notes } = await run(
-      [{ text: 'je tourne', toolCalls: [{ id: 'c1', name: 'read_file', argumentsJson: '{"path":"src/a.ts"}' }], usage: inconnu }],
-      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 4, max_cost_usd: 0.000001 } } },
-    )
-    assert.equal(outcome.status, 'failed', 'bornée par les étapes, pas par un budget inapplicable')
-    assert.equal(notes.filter((n) => /tarif inconnu/.test(n)).length, 1, 'averti une fois, pas à chaque tour')
+  it('la consigne dit au modèle qu\'aucune limite ne l\'arrêtera, sans en inventer', () => {
+    const [system] = buildMessages({ agent: agentWith(), objective: 'o', context: null, root: '/p', tree: 'src/' })
+    assert.match(system!.content, /no step limit, budget or deadline/)
+    assert.match(system!.content, /only submit_result ends the task/)
+    assert.doesNotMatch(system!.content, /At most \d+|Budget: \d|seconds wall clock/)
   })
 
   it('honore une annulation au point de contrôle suivant', async () => {
@@ -644,16 +614,13 @@ describe('appels d\'outils', () => {
     assert.equal(tools.find((t) => t.name === 'http_fetch')?.status, 'rejected')
   })
 
-  it('refuse les appels au-delà de la limite par étape, en le disant', async () => {
-    const trois = Array.from({ length: 3 }, (_, i) => ({
+  it('exécute tous les appels d\'outils d\'une étape, sans plafond', async () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({
       id: `c${i}`, name: 'read_file', argumentsJson: '{"path":"src/a.ts"}',
     }))
-    const { outcome, tools } = await run(
-      [{ toolCalls: trois }, { toolCalls: submit('fini') }],
-      { agent: { limits: { ...DEFAULT_RESEARCHER_LIMITS, max_tool_calls_per_step: 2 } } },
-    )
+    const { outcome, tools } = await run([{ toolCalls: six }, { toolCalls: submit('fini') }])
     assert.equal(outcome.status, 'completed')
-    assert.equal(tools.filter((t) => t.name === 'read_file').length, 2, 'deux exécutés, le troisième refusé')
+    assert.equal(tools.filter((t) => t.name === 'read_file' && t.status === 'succeeded').length, 6)
   })
 })
 
@@ -868,8 +835,6 @@ describe('consigne d\'un agent écrivant', () => {
     context: 'Voir /depot/src/app.ts',
     root: '/wt/abcd',
     tree: 'src/',
-    limits: DEFAULT_RESEARCHER_LIMITS,
-    budgetEnforceable: true,
   }
 
   it('dit le worktree, sa branche, et que les chemins de l\'orchestrateur se lisent en relatif', () => {
@@ -928,8 +893,6 @@ describe('neutralité envers l\'orchestrateur', () => {
         context: 'contexte transmis',
         root: '/wt/abcd',
         tree: 'src/',
-        limits: DEFAULT_RESEARCHER_LIMITS,
-        budgetEnforceable: false,
         workspace: id === 'developer'
           ? { branch: 'midgaard/abcd', baseCommit: 'a'.repeat(40), baseDirty: 2, submodules: ['vendor/lib'], originDir: '/depot' }
           : undefined,

@@ -64,7 +64,7 @@ before(async () => {
   reconcileAgents(daemon.store)
   daemon.store.upsertAgent({
     id: 'orchestrator', name: 'Orchestrator', kind: 'orchestrator', description: 'délègue', providerId: 'faux',
-    model: null, systemPrompt: '', tools: [], limits: daemon.store.getAgent('researcher')!.limits, enabled: true,
+    model: null, systemPrompt: '', tools: [], enabled: true,
   })
   for (const kind of ['orchestrator', 'researcher', 'developer'] as const) daemon.tasks.register(drivenEngine(kind))
 })

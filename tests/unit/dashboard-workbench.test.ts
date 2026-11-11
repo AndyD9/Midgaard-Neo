@@ -23,7 +23,7 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { DEFAULT_RESEARCHER_LIMITS, emptyUsage, type Task, type TaskEvent } from '@midgaard/contracts'
+import { emptyUsage, type Task, type TaskEvent } from '@midgaard/contracts'
 import { composerState } from '../../apps/dashboard/src/lib/thread.ts'
 import { buildStream, plain } from '../../apps/dashboard/src/lib/stream.ts'
 import { browserSummary, closedReasonText } from '../../apps/dashboard/src/lib/browser.ts'
@@ -38,7 +38,7 @@ function task(id: string, over: Partial<Task> = {}): Task {
   const at = '2026-11-03T10:00:00.000Z'
   return {
     id, objective: 'objectif', status: 'running', step: 0, steps_total: 1, agent_id: 'orchestrator', context: null,
-    project_dir: '/p', parent_task_id: null, mode: 'chat', awaiting_input: null, limits: DEFAULT_RESEARCHER_LIMITS,
+    project_dir: '/p', parent_task_id: null, mode: 'chat', awaiting_input: null,
     usage: emptyUsage(), needs_approval: false, approval_seq: 0, duration_s: 1, created_at: at, updated_at: at,
     started_at: null, ended_at: null, result: null, error: null, ...over,
   }

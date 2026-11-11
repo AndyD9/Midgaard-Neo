@@ -353,7 +353,7 @@ await scenario(outcomes, 'O3 un daemon tué net laisse un arbre entièrement int
 
 // --- O4 ----------------------------------------------------------------------
 
-await scenario(outcomes, 'O4 ni profondeur 2, ni limite relevée par une délégation', async () => {
+await scenario(outcomes, 'O4 pas de profondeur 2, et une délégation ne porte aucune limite', async () => {
   const repo = makeRepo('o4')
   provider.scripts.set('[O4-res]', [submit('lu')])
   const parent = await orchestrate('[O4]', repo, [
@@ -380,15 +380,17 @@ await scenario(outcomes, 'O4 ni profondeur 2, ni limite relevée par une délég
   if (!refused || !/orchestrator profile/.test(refused.error ?? '')) problems.push(`délégation à un orchestrateur : ${refused?.error ?? 'pas refusée'}`)
   const kids = childrenInDb(parent.id)
   if (kids.length !== 1 || kids[0]!.agent_id !== 'researcher') problems.push(`enfants : ${kids.map((k) => k.agent_id).join(', ')}`)
+  // Des `limits` glissées dans la délégation sont ignorées : ni la sous-tâche
+  // ni son profil n'en portent, et rien n'en est gardé.
   const profile = (await daemonJson<{ agent: Agent }>(rt, '/api/agents/researcher')).body.agent
-  if (kids[0] && JSON.stringify(kids[0].limits) !== JSON.stringify(profile.limits)) {
-    problems.push(`limites de l'enfant ${JSON.stringify(kids[0].limits)} au lieu de celles du profil`)
-  }
+  if (kids[0] && 'limits' in kids[0]) problems.push('la sous-tâche porte encore des limites')
+  if ('limits' in profile) problems.push('le profil porte encore des limites')
+  if (kids[0] && kids[0].status !== 'completed') problems.push(`sous-tâche ${kids[0].status} — ${kids[0].error}`)
   return {
     verdict: problems.length ? 'FAIL' : 'PASS',
     detail: problems.length
       ? problems.join(' ; ')
-      : `délégation à « orchestrator » refusée ; 1 000 $ demandés, ${profile.limits.max_cost_usd} $ appliqués (plafond du profil)`,
+      : 'délégation à « orchestrator » refusée ; limites glissées dans la délégation ignorées, sous-tâche terminée sans plafond',
   }
 })
 

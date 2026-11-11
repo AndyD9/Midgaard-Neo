@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
-import { DEFAULT_RESEARCHER_LIMITS, canonicalJson, loadConfig, operationHash } from '@midgaard/contracts'
+import { canonicalJson, loadConfig, operationHash } from '@midgaard/contracts'
 import { HarnessStore } from '@midgaard/persistence'
 
 const TASK = '0b9f3c2e-4d1a-4f6b-9c7e-2a5d8e1f3b40'
@@ -47,8 +47,7 @@ describe('détail conservé avec la demande', () => {
     const store = HarnessStore.open(loadConfig({ MIDGAARD_HOME: home }))
     try {
       const { task } = store.createTask({
-        objective: 'o', agentId: 'simulated', context: null, projectDir: null,
-        limits: DEFAULT_RESEARCHER_LIMITS, durationS: 10, stepsTotal: 5, needsApproval: true,
+        objective: 'o', agentId: 'simulated', context: null, projectDir: null, durationS: 10, stepsTotal: 5, needsApproval: true,
       })
       const detail = exec(['test'])
       const a = store.createApproval({

@@ -9,8 +9,8 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { DEFAULT_RESEARCHER_LIMITS, emptyUsage, type Agent, type ProviderConfig, type Task, type Usage } from '@midgaard/contracts'
-import { subtaskCeiling, subtasksOf, taskTree, treeTotal } from '../../apps/dashboard/src/lib/tree.ts'
+import { emptyUsage, type Agent, type ProviderConfig, type Task, type Usage } from '@midgaard/contracts'
+import { subtasksOf, taskTree, treeTotal } from '../../apps/dashboard/src/lib/tree.ts'
 import { disabledReason } from '../../apps/dashboard/src/lib/agents.ts'
 
 let clock = 0
@@ -19,8 +19,7 @@ function task(id: string, over: Partial<Task> = {}): Task {
   const at = new Date(Date.UTC(2026, 10, 1, 0, 0, clock++)).toISOString()
   return {
     id, objective: id, status: 'running', step: 0, steps_total: 1, agent_id: 'researcher', context: null,
-    project_dir: null, parent_task_id: null, mode: 'oneshot', awaiting_input: null,
-    limits: DEFAULT_RESEARCHER_LIMITS, usage: emptyUsage(),
+    project_dir: null, parent_task_id: null, mode: 'oneshot', awaiting_input: null, usage: emptyUsage(),
     needs_approval: false, approval_seq: 0, duration_s: 1, created_at: at, updated_at: at, started_at: null,
     ended_at: null, result: null, error: null, ...over,
   }
@@ -81,16 +80,10 @@ describe('treeTotal', () => {
   })
 })
 
-describe('subtaskCeiling', () => {
-  it('vaut étapes × appels d\'outils par étape', () => {
-    assert.equal(subtaskCeiling({ limits: { ...DEFAULT_RESEARCHER_LIMITS, max_steps: 16, max_tool_calls_per_step: 4 } }), 64)
-  })
-})
-
 describe('disabledReason', () => {
   const agent = (over: Partial<Agent>): Agent => ({
     id: 'researcher', name: 'R', kind: 'researcher', description: '', provider_id: null, model: null, system_prompt: '',
-    tools: [], limits: DEFAULT_RESEARCHER_LIMITS, enabled: false, vision: null, mcp_servers: [], created_at: '', updated_at: '', ...over,
+    tools: [], enabled: false, vision: null, mcp_servers: [], created_at: '', updated_at: '', ...over,
   })
   const venice = { id: 'venice' } as ProviderConfig
 

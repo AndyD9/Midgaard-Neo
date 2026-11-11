@@ -23,7 +23,6 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import { checkLimits } from '@midgaard/agent-runtime'
 import { createRedactor, emptyUsage, loadConfig, type AgentKind, type Task, type Usage } from '@midgaard/contracts'
 import { CREATED_ROLE_HEADING, reconcileAgents, startDaemon, type Daemon, type EngineContext, type TaskEngine } from '@midgaard/daemon'
 import type { CreatedAgentInfo, DelegationPort, DelegationRefusal } from '@midgaard/tools'
@@ -103,11 +102,10 @@ describe('créer un agent', () => {
     const { parent, port } = orchestrator()
     const info = ok(port.createAgent({
       name: 'Reverser binaire', base: 'researcher', role: 'Reverse the binary with REA.', mcp_servers: ['rea'],
-      limits: { max_steps: 5 },
     }))
     assert.match(info.agent_id, /^reverser-binaire-[0-9a-f]{6}$/)
     assert.deepEqual(info.mcp_servers, ['rea'])
-    assert.equal(info.limits.max_steps, 5)
+    assert.ok(!('limits' in info), 'un agent créé ne porte aucune limite')
 
     const agent = daemon.tasks.agentFor(info.agent_id)!
     const researcher = daemon.store.getAgent('researcher')!
@@ -127,21 +125,19 @@ describe('créer un agent', () => {
     const child = port.delegate({ agent_id: info.agent_id, objective: 'regarde main' })
     assert.ok(!('refused' in child), JSON.stringify(child))
     assert.equal(daemon.store.getTask(child.task_id)?.agent_id, info.agent_id)
-    assert.equal(daemon.store.getTask(child.task_id)?.limits.max_steps, 5)
+    assert.equal(daemon.store.getTask(child.task_id)?.steps_total, 0, 'aucun nombre d\'étapes prévu')
   })
 
   it('refuse avec le motif tout ce qui dépasserait le profil de base', () => {
     const { port } = orchestrator()
     const base = { name: 'x', base: 'researcher' as const, role: 'r' }
-    const max = daemon.store.getAgent('researcher')!.limits.max_cost_usd
-    refused(port.createAgent({ ...base, limits: { max_cost_usd: max + 1 } }), /limits above the base profile: max_cost_usd/)
     refused(port.createAgent({ ...base, mcp_servers: ['ghidra'] }), /not available to the base profile "researcher" \(it has: rea\)/)
     refused(port.createAgent({ name: 'x', base: 'developer', role: 'r', mcp_servers: ['rea'] }), /it has: none/)
     refused(port.createAgent({ ...base, provider_id: 'absent' }), /unknown model provider "absent"/)
     refused(port.createAgent({ ...base, model: 'pas-offert' }), /not offered by provider "venice"/)
-    refused(port.createAgent({ ...base, model: 'modele-sans-tarif' }), /no known price/)
-    // Un modèle offert et tarifé passe.
+    // Un modèle offert passe, tarifé ou non : plus aucun budget ne dépend de son tarif.
     ok(port.createAgent({ ...base, model: 'qwen-3-8-flash' }))
+    ok(port.createAgent({ ...base, name: 'y', model: 'modele-sans-tarif' }))
   })
 
   it('n\'existe que dans son arbre', () => {
@@ -158,7 +154,7 @@ describe('créer un agent', () => {
   })
 })
 
-describe('les plafonds de l\'arbre', () => {
+describe('ce qui borne encore un arbre', () => {
   it('refuse une sous-tâche au-delà du nombre de sous-tâches actives', () => {
     const { parent, port } = orchestrator()
     for (let i = 0; i < 2; i++) assert.ok(!('refused' in port.delegate({ agent_id: 'researcher', objective: `n${i}` })))
@@ -167,30 +163,16 @@ describe('les plafonds de l\'arbre', () => {
     assert.equal(daemon.store.childTasks(parent.id, { active: true }).length, 2, 'compté en base')
   })
 
-  it('compte la dépense de tout l\'arbre, et refuse de déléguer une fois le budget dépensé', () => {
+  it('ne refuse aucune délégation pour ce que l\'arbre a dépensé', () => {
+    // L'ancien budget de l'arbre (0,50 $) est dépassé mille fois : la
+    // délégation suivante part quand même. Seul le nombre de sous-tâches
+    // actives en même temps reste plafonné.
     const { parent, port } = orchestrator()
-    const limit = parent.limits.max_cost_usd
     const child = port.delegate({ agent_id: 'researcher', objective: 'dépense' })
     assert.ok(!('refused' in child))
-    spend(parent.id, limit * 0.25)
-    spend(child.task_id, limit * 0.5)
-    // Chaque tâche voit ce qu'ont dépensé les **autres**.
-    assert.deepEqual(daemon.tasks.treeBudget(child.task_id), { limit, others: limit * 0.25 })
-    assert.deepEqual(daemon.tasks.treeBudget(parent.id), { limit, others: limit * 0.5 })
-    spend(child.task_id, limit * 0.8)
-    const late = port.delegate({ agent_id: 'researcher', objective: 'trop tard' })
-    assert.ok('refused' in late && /budget of this task .* is spent/.test(late.refused))
-  })
-
-  it('arrête une tâche dont l\'arbre a atteint son budget, dès son premier appel', () => {
-    const limits = daemon.store.getAgent('researcher')!.limits
-    const base = { usage: emptyUsage(), step: 0, limits, deadline: Date.now() + 60_000, cancelled: false }
-    assert.equal(checkLimits({ ...base, tree: { limit: 1, others: 0.4 } }), null)
-    // Coût propre encore inconnu : il compte pour zéro, mais le contrôle a lieu.
-    const stop = checkLimits({ ...base, tree: { limit: 1, others: 1 } })
-    assert.equal(stop?.kind, 'budget')
-    assert.match(stop!.detail, /budget de l'arbre de tâches/)
-    const priced = { ...emptyUsage(), model_calls: 1, cost_usd: 0.7, cost_source: 'pricing_table' as const }
-    assert.equal(checkLimits({ ...base, usage: priced, tree: { limit: 1, others: 0.4 } })?.kind, 'budget')
+    spend(parent.id, 250)
+    spend(child.task_id, 250)
+    const next = port.delegate({ agent_id: 'researcher', objective: 'encore' })
+    assert.ok(!('refused' in next), JSON.stringify(next))
   })
 })

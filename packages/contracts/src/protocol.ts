@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { taskEventSchema } from './events.ts'
 import { approvalSchema } from './approvals.ts'
 import { NEXT_ACTIONS, taskSchema, taskStatusSchema } from './task.ts'
-import { agentSchema, requestedLimitsSchema } from './agent.ts'
+import { agentSchema } from './agent.ts'
 import { connectionTestSchema, PROVIDER_PRESETS, providerConfigSchema, WEB_SEARCH_MODES } from './provider.ts'
 import { pricingTableSchema } from './usage.ts'
 import { toolCallSchema } from './tools.ts'
@@ -107,8 +107,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *
  * Les briques des versions 17 (playbooks), 19 (échantillons) et 22 (findings)
  * ont été retirées depuis : l'historique reste, le numéro ne redescend pas.
+ *
+ *  - 23 : **plus de limites** (Midgaard Neo). Ni un profil, ni une tâche, ni un
+ *        agent créé ne portent de `limits` ; `POST /api/tasks` n'en lit plus,
+ *        et `PUT /api/agents/:id/limits` n'existe plus. Un daemon de protocole
+ *        22 arrêterait encore une tâche sur ses étapes, son budget ou son délai.
  */
-export const PROTOCOL_VERSION = 22
+export const PROTOCOL_VERSION = 23
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
@@ -182,8 +187,6 @@ export const createTaskRequestSchema = z.object({
    * travail, c'est-à-dire le dépôt ouvert dans la session Claude Code.
    */
   project_dir: z.string().max(4096).optional(),
-  /** Limites demandées. Elles ne peuvent qu'**abaisser** celles du profil. */
-  limits: requestedLimitsSchema.optional(),
   /** Tâche simulée seulement : durée totale. */
   duration_s: z.number().int().min(1).max(900).default(20),
   /** Tâche simulée seulement : insère une pause d'approbation. */

@@ -9,7 +9,6 @@ export { daemonCheck, decide, doctor, execAllowCheck, gitCheck, portFallbackNote
 export type { Check } from './commands.ts'
 export { ensureDaemon } from './daemon-client.ts'
 export { exec, parseExecArgs, workspaces } from './workspaces.ts'
-export { parseLimitsArgs } from './providers.ts'
 export { absolutizeArgs, mcp, parseMcpAddArgs, readOnlyCandidates, resolveProgram } from './mcp.ts'
 export type { McpAddArgs } from './mcp.ts'
 export { extractHome } from './args.ts'

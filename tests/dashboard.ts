@@ -30,8 +30,7 @@
  *    Slice 3, avec un faux fournisseur qui joue les appels d'outils ;
  *  - D9 le formulaire « Nouvelle tâche » ne propose **que des profils actifs**
  *    et dit pourquoi les autres ne le sont pas, puis lance une tâche (Slice 5) ;
- *  - D10 le modèle d'un profil se choisit dans la vue « Profils », et ses
- *    limites n'en bougent pas ;
+ *  - D10 le modèle d'un profil se choisit dans la vue « Profils » ;
  *  - D11 un orchestrateur lancé du formulaire : dossier refusé avec son motif
  *    puis accepté, sous-tâche rangée sous son parent, carte « Sous-tâches »
  *    avec le plafond théorique et le total de l'arbre **avec sa provenance**,
@@ -56,11 +55,11 @@
  *    libre **en base**, décocher le rend approuvé, et un serveur se donne au
  *    Researcher — jamais proposé à l'orchestrateur ;
  *  - D17 un orchestrateur crée un exécutant (Slice 8) : la carte
- *    « Sous-tâches » montre l'agent créé **avec son rôle**, et le budget de
+ *    « Sous-tâches » montre l'agent créé **avec son rôle**, sans budget de
  *    l'arbre ;
- *  - D18 les limites d'un profil se règlent aux Profils (Slice 8) : un
- *    relèvement demande confirmation — refusée, rien ne change ; acceptée,
- *    la limite change **en base** —, un abaissement non.
+ *  - D18 **aucune limite** ne se règle ni ne s'applique : aucun champ aux
+ *    Profils, la route `PUT /api/agents/:id/limits` est retirée, un profil
+ *    n'en porte plus.
  *  - D20 une clé se dépose depuis les Profils, sans terminal : champ masqué,
  *    vidé après l'envoi, clé absente de la page et de l'API ; le fournisseur
  *    la reçoit pourtant (relue au coffre) ; une clé remplacée l'est vraiment ;
@@ -484,7 +483,7 @@ await scenario(outcomes, 'D8 le diff d’une tâche Developer se lit dans le das
 
 // --- D10 (après D8 : le fournisseur « faux » existe) -------------------------
 
-await scenario(outcomes, 'D10 le modèle d’un profil se choisit dans le dashboard, ses limites n’en bougent pas', async () => {
+await scenario(outcomes, 'D10 le modèle d’un profil se choisit dans le dashboard', async () => {
   const before = (await daemonJson<{ agent: Agent }>(rt, '/api/agents/orchestrator')).body.agent
   await page.goto(`${rt.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
   const input = page.getByTestId('agent-model-orchestrator')
@@ -498,10 +497,7 @@ await scenario(outcomes, 'D10 le modèle d’un profil se choisit dans le dashbo
   if (!(await sees(/enregistré : faux · faux-2/))) return { verdict: 'FAIL', detail: 'aucune confirmation à l’écran' }
   const after = (await daemonJson<{ agent: Agent }>(rt, '/api/agents/orchestrator')).body.agent
   if (after.model !== 'faux-2') return { verdict: 'FAIL', detail: `modèle en base : ${after.model}` }
-  if (JSON.stringify(after.limits) !== JSON.stringify(before.limits)) {
-    return { verdict: 'FAIL', detail: 'les limites du profil ont bougé' }
-  }
-  return { verdict: 'PASS', detail: `orchestrator : ${before.model ?? 'modèle par défaut'} → ${after.model}, limites intactes` }
+  return { verdict: 'PASS', detail: `orchestrator : ${before.model ?? 'modèle par défaut'} → ${after.model}` }
 })
 
 // --- D11 ---------------------------------------------------------------------
@@ -530,8 +526,10 @@ await scenario(outcomes, 'D11 un orchestrateur lancé du formulaire, et son arbr
     await page.goto(`${rt.dashboard_url}#/new`, { waitUntil: 'domcontentloaded' })
     await page.getByTestId('new-task-agent').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
     await page.getByTestId('new-task-agent').selectOption('orchestrator')
-    if (!/jusqu'à 64/.test((await page.getByTestId('new-task-ceiling').textContent()) ?? '')) {
-      return { verdict: 'FAIL', detail: 'le plafond théorique n’est pas annoncé avant le lancement' }
+    // Aucun plafond n'est annoncé, parce qu'il n'y en a plus : le formulaire
+    // dit ce qui arrête une tâche, avant qu'on la lance.
+    if (!/Aucune limite/.test((await page.getByTestId('new-task-unbounded').textContent()) ?? '')) {
+      return { verdict: 'FAIL', detail: 'le formulaire ne dit pas qu’aucune limite ne borne la tâche' }
     }
     await page.getByTestId('new-task-objective').fill('[D11] orchestre la lecture du README')
 
@@ -562,7 +560,7 @@ await scenario(outcomes, 'D11 un orchestrateur lancé du formulaire, et son arbr
     const card = page.getByTestId('subtasks-card')
     await card.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
     const ceiling = (await card.getByTestId('subtasks-ceiling').textContent()) ?? ''
-    if (!/1 lancée\(s\) sur 64/.test(ceiling)) return { verdict: 'FAIL', detail: `plafond affiché : « ${ceiling} »` }
+    if (!/^\s*1 lancée\(s\)\s*$/.test(ceiling)) return { verdict: 'FAIL', detail: `compte affiché : « ${ceiling} »` }
     const parent = await taskNow(parentId)
     const measured = [parent, child].filter((t) => t.usage.model_calls > 0).map((t) => t.usage.cost_source)
     const weakest = measured.includes('unknown') ? 'unknown' : measured.includes('pricing_table') ? 'pricing_table' : 'provider'
@@ -938,7 +936,7 @@ await scenario(outcomes, 'D16 les serveurs MCP aux Profils : test, outils coché
 
 // --- D17 ---------------------------------------------------------------------
 
-await scenario(outcomes, 'D17 un orchestrateur crée un exécutant : son rôle et le budget de l’arbre', async () => {
+await scenario(outcomes, 'D17 un orchestrateur crée un exécutant : son rôle, sans budget d’arbre', async () => {
   const provider = await startFakeProvider()
   const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'midgaard-ui-cree-')))
   try {
@@ -970,9 +968,8 @@ await scenario(outcomes, 'D17 un orchestrateur crée un exécutant : son rôle e
     await list.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
     const shown = (await list.textContent()) ?? ''
     if (!shown.includes('Lecteur') || !shown.includes(role)) return { verdict: 'FAIL', detail: `agent créé sans son nom ou son rôle : « ${shown} »` }
-    const budget = (await page.getByTestId('subtasks-budget').textContent()) ?? ''
-    if (!/Budget de l'arbre/.test(budget)) return { verdict: 'FAIL', detail: `budget de l’arbre absent : « ${budget} »` }
-    return { verdict: 'PASS', detail: `exécutant « Lecteur » créé et montré avec son rôle ; ${budget.trim().slice(0, 60)}…` }
+    if ((await page.getByTestId('subtasks-budget').count()) > 0) return { verdict: 'FAIL', detail: 'un budget d’arbre est encore affiché' }
+    return { verdict: 'PASS', detail: 'exécutant « Lecteur » créé et montré avec son rôle ; aucun budget d’arbre affiché' }
   } finally {
     provider.server.close()
     rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
@@ -981,46 +978,21 @@ await scenario(outcomes, 'D17 un orchestrateur crée un exécutant : son rôle e
 
 // --- D18 ---------------------------------------------------------------------
 
-await scenario(outcomes, 'D18 les limites d’un profil : un relèvement se confirme, un abaissement non', async () => {
-  const limits = async () => (await daemonJson<{ agent: Agent }>(rt, '/api/agents/researcher')).body.agent.limits
-  const before = await limits()
+await scenario(outcomes, 'D18 aucune limite ne se règle ni ne s’applique : ni aux Profils, ni par l’API', async () => {
   await page.goto(`${rt.dashboard_url}#/agents`, { waitUntil: 'domcontentloaded' })
-  const field = page.getByTestId('agent-limit-researcher-timeout_s')
-  await field.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+  // La carte du Researcher est là, avec son modèle à régler…
+  await page.getByTestId('agent-researcher').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+  // …mais aucun champ de limite, pour aucun profil.
+  const fields = await page.locator('[data-testid^="agent-limit"]').count()
+  if (fields > 0) return { verdict: 'FAIL', detail: `${fields} champ(s) de limite encore aux Profils` }
+  if (await sees(/Limites\s*:/, 500)) return { verdict: 'FAIL', detail: 'le mot « Limites » est encore affiché aux Profils' }
 
-  // Relever, puis refuser la confirmation : rien ne doit changer.
-  const raised = before.timeout_s + 300
-  await field.fill(String(raised))
-  let asked = ''
-  page.once('dialog', (d) => {
-    asked = d.message()
-    void d.dismiss()
-  })
-  await page.getByTestId('agent-limits-save-researcher').click()
-  if (!(await until(async () => asked !== ''))) return { verdict: 'FAIL', detail: 'relèvement enregistré sans confirmation' }
-  if (!asked.includes(`timeout_s : ${before.timeout_s} → ${raised}`)) return { verdict: 'FAIL', detail: `confirmation sans le détail : « ${asked} »` }
-  await sleep(500)
-  if ((await limits()).timeout_s !== before.timeout_s) return { verdict: 'FAIL', detail: 'relevé malgré le refus de confirmer' }
-
-  // Relever et confirmer : la limite change en base.
-  page.once('dialog', (d) => void d.accept())
-  await page.getByTestId('agent-limits-save-researcher').click()
-  if (!(await until(async () => (await limits()).timeout_s === raised))) return { verdict: 'FAIL', detail: 'relèvement confirmé, mais pas enregistré' }
-
-  // Abaisser : aucune confirmation.
-  let prompted = false
-  const onDialog = (d: { dismiss: () => Promise<void> }) => {
-    prompted = true
-    void d.dismiss()
-  }
-  page.on('dialog', onDialog)
-  await page.getByTestId('agent-limit-researcher-timeout_s').fill(String(before.timeout_s))
-  await page.getByTestId('agent-limits-save-researcher').click()
-  const lowered = await until(async () => (await limits()).timeout_s === before.timeout_s)
-  page.off('dialog', onDialog)
-  if (!lowered) return { verdict: 'FAIL', detail: 'abaissement non enregistré' }
-  if (prompted) return { verdict: 'FAIL', detail: 'un abaissement a demandé confirmation' }
-  return { verdict: 'PASS', detail: `timeout_s ${before.timeout_s} → ${raised} : refusé puis confirmé ; retour à ${before.timeout_s} sans confirmation` }
+  // L'API non plus : la route est retirée, et un profil n'en porte plus.
+  const put = await daemonJson(rt, '/api/agents/researcher/limits', { method: 'PUT', body: JSON.stringify({ max_steps: 3 }) })
+  if (put.status !== 404) return { verdict: 'FAIL', detail: `PUT /api/agents/researcher/limits répond ${put.status}` }
+  const agent = (await daemonJson<{ agent: Agent }>(rt, '/api/agents/researcher')).body.agent
+  if ('limits' in agent) return { verdict: 'FAIL', detail: 'le profil rendu par l’API porte encore des limites' }
+  return { verdict: 'PASS', detail: 'aucun champ de limite aux Profils, route retirée (404), profil sans limites' }
 })
 
 // --- D20 ---------------------------------------------------------------------

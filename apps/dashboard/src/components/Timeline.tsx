@@ -63,7 +63,7 @@ const AWAITING: Record<string, string> = {
 function describe(event: TaskEvent): string | null {
   const p = event.payload as Record<string, unknown>
   if (typeof p.message === 'string') return p.message
-  if (event.type === 'task.progress') return `étape ${p.step}/${p.steps_total}`
+  if (event.type === 'task.progress') return Number(p.steps_total) > 0 ? `étape ${p.step}/${p.steps_total}` : `étape ${p.step}`
   if (event.type === 'approval.requested') return String(p.operation ?? '')
   if (event.type === 'approval.resolved') {
     const by = p.by ? ` par ${String(p.by)}` : ''

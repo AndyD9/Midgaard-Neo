@@ -28,8 +28,6 @@ export function UsageCard({ task }: { task: Task }) {
   if (u.model_calls === 0) return null
 
   const source = SOURCE[u.cost_source]
-  const budget = task.limits.max_cost_usd
-  const part = u.cost_source === 'unknown' || budget === 0 ? null : Math.min(1, u.cost_usd / budget)
 
   return (
     <Card>
@@ -45,18 +43,9 @@ export function UsageCard({ task }: { task: Task }) {
             {u.cost_source === 'unknown' ? '—' : formatCost(u.cost_usd)}
           </span>
           <span className="text-muted">
-            sur un budget de {formatCost(budget)} · {u.model_calls} appel(s)
+            {u.model_calls} appel(s) de modèle
           </span>
         </div>
-
-        {part !== null && (
-          <div className="h-1.5 overflow-hidden rounded-full bg-border" role="presentation">
-            <div
-              className={part >= 1 ? 'h-full bg-danger' : 'h-full bg-accent'}
-              style={{ width: `${Math.round(part * 100)}%` }}
-            />
-          </div>
-        )}
 
         {u.cost_usd_reported !== null && u.cost_usd_estimated !== null && (
           <p className="text-xs text-muted">
@@ -67,8 +56,8 @@ export function UsageCard({ task }: { task: Task }) {
 
         {u.cost_source === 'unknown' && (
           <p className="text-xs text-muted">
-            Aucun tarif connu pour ce modèle : le budget en dollars n'a pas pu être appliqué, seules les
-            limites d'étapes et de durée ont borné cette tâche. Relève les tarifs avec{' '}
+            Aucun tarif connu pour ce modèle : ce que cette tâche a coûté n'est pas mesuré ici, seul le
+            fournisseur le sait. Relève les tarifs avec{' '}
             <code className="font-mono">harness pricing refresh</code>.
           </p>
         )}

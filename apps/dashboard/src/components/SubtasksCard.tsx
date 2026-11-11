@@ -3,11 +3,9 @@
  * qui, ce que chacune a coûté, ce que coûte l'arbre entier — et, depuis la
  * Slice 8, les exécutants qu'il a créés.
  *
- * **Le budget de l'arbre** (Slice 8) : le `max_cost_usd` de l'orchestrateur
- * couvre ses appels et ceux de chaque sous-tâche (`treeBudget`). La carte le
- * montre à côté du **total** réellement dépensé, avec la plus faible des
- * provenances de ses termes (`treeTotal`) : aucun montant sans sa provenance.
- * Le **plafond théorique** en nombre de sous-tâches reste affiché.
+ * La carte montre le **total** réellement dépensé par l'arbre, avec la plus
+ * faible des provenances de ses termes (`treeTotal`) : aucun montant sans sa
+ * provenance. Aucun budget ni plafond n'y figure : il n'y en a plus.
  *
  * **Les agents créés** sont lus dans le journal de l'orchestrateur
  * (`agent.created`) : nom, profil de base, modèle, serveurs MCP, et le **rôle**
@@ -20,7 +18,7 @@
  */
 import { GitBranch, Hourglass, Network, UserPlus } from 'lucide-react'
 import type { Task, TaskEvent, Usage } from '@midgaard/contracts'
-import { createdAgents, subtaskCeiling, subtasksOf, treeBudget, treeTotal } from '@/lib/tree'
+import { createdAgents, subtasksOf, treeTotal } from '@/lib/tree'
 import { formatCost } from '@/lib/utils'
 import { Badge, toneForStatus, type BadgeTone } from './ui/badge'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
@@ -52,7 +50,6 @@ export function SubtasksCard({
   if (children.length === 0 && task.agent_id !== 'orchestrator') return null
 
   const total = treeTotal([task, ...children])
-  const budget = treeBudget(task, children)
   const created = createdAgents(events)
   const waitingOn = [...(events ?? [])].reverse().find((e) => e.type === 'subtask.waiting')?.payload.task_id
   const awaited = children.find((c) => c.id === waitingOn && !ENDED.has(c.status)) ?? null
@@ -64,7 +61,7 @@ export function SubtasksCard({
           <Network className="size-4 text-muted" /> Sous-tâches
         </CardTitle>
         <span className="text-xs text-muted" data-testid="subtasks-ceiling">
-          {children.length} lancée(s) sur {subtaskCeiling(task)} au plus
+          {children.length} lancée(s)
         </span>
       </CardHeader>
       <CardBody className="space-y-3 text-sm">
@@ -80,12 +77,6 @@ export function SubtasksCard({
             <span className="text-muted">aucun appel de modèle encore</span>
           )}
         </div>
-        <p className="text-xs text-muted" data-testid="subtasks-budget">
-          Budget de l'arbre : {formatCost(budget.spent)} sur {formatCost(budget.limit)} — l'orchestrateur et ses
-          sous-tâches ensemble ; atteint, tout s'arrête.
-          {budget.unknown > 0 && ` ${budget.unknown} tâche(s) au coût inconnu ne sont pas comptées.`}
-        </p>
-
         {created.length > 0 && (
           <ul className="space-y-2 rounded-md border border-border px-3 py-2" data-testid="created-agents">
             {created.map((a) => (

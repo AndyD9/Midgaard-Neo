@@ -56,7 +56,7 @@ export const submitResultTool: Tool<SubmitResultArgs> = {
   description:
     'Finish the task and return the structured answer. Call this exactly once, when you are done. ' +
     'Nothing else ends the task: writing that you are finished in plain text does not, and the task ' +
-    'will keep burning your remaining steps and budget.',
+    'will keep running, and costing model calls, until you do.',
   schema: submitResultSchema,
   policy: () => ({ decision: 'allow', reason: 'résultat structuré, aucun effet de bord' }),
 

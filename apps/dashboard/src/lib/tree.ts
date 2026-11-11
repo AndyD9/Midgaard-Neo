@@ -85,38 +85,6 @@ export function treeTotal(tasks: readonly Task[]): { cost_usd: number; cost_sour
   }
 }
 
-/**
- * Plafond théorique de sous-tâches d'un orchestrateur : il ne peut pas en
- * lancer plus d'une par appel d'outil, ni plus d'appels que ses étapes n'en
- * permettent. Depuis la Slice 8, ce n'est plus la seule borne : le budget de
- * l'orchestrateur couvre tout l'arbre ({@link treeBudget}), et le nombre de
- * sous-tâches actives en même temps est plafonné par le daemon.
- */
-export function subtaskCeiling(task: Pick<Task, 'limits'>): number {
-  return task.limits.max_steps * task.limits.max_tool_calls_per_step
-}
-
-/**
- * Le budget de l'arbre (Slice 8) : le `max_cost_usd` de l'orchestrateur couvre
- * ses appels et ceux de chaque sous-tâche. Seuls les montants **connus**
- * comptent, comme dans le daemon (`TaskManager.treeBudget`) : un coût inconnu
- * n'est pas zéro, il n'entre pas dans la somme — et le nombre de tâches
- * écartées le dit.
- *
- * @returns le plafond, ce qui est dépensé, et combien de tâches ont un coût inconnu
- */
-export function treeBudget(
-  parent: Task,
-  children: readonly Task[],
-): { limit: number; spent: number; unknown: number } {
-  const measured = [parent, ...children].filter((t) => t.usage.model_calls > 0)
-  return {
-    limit: parent.limits.max_cost_usd,
-    spent: measured.filter((t) => t.usage.cost_source !== 'unknown').reduce((sum, t) => sum + t.usage.cost_usd, 0),
-    unknown: measured.filter((t) => t.usage.cost_source === 'unknown').length,
-  }
-}
-
 /** Un agent créé par l'orchestrateur, tel que son journal le raconte. */
 export interface CreatedAgentView {
   agent_id: string

@@ -25,7 +25,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { after, before, describe, it } from 'node:test'
 import { chromium } from 'playwright'
 import type { Agent, NewTaskEvent } from '@midgaard/contracts'
-import { DEFAULT_RESEARCHER_LIMITS, emptyUsage } from '@midgaard/contracts'
+import { emptyUsage } from '@midgaard/contracts'
 import type { CompletionRequest, Message, ProviderAdapter } from '@midgaard/providers'
 import { dropTransientImages, runAgent, type ApprovalOutcome, type LoopHooks } from '@midgaard/agent-runtime'
 import {
@@ -308,7 +308,7 @@ describe('les captures dans la conversation', () => {
     const agent: Agent = {
       id: 'navigator', name: 'N', kind: 'researcher', description: '', provider_id: 'faux', model: null,
       system_prompt: 'You browse.', tools: ['browser_open', 'browser_click', 'submit_result'],
-      limits: { ...DEFAULT_RESEARCHER_LIMITS }, enabled: true, vision: true, mcp_servers: [],
+      enabled: true, vision: true, mcp_servers: [],
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }
     const outcome = await runAgent({

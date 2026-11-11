@@ -54,7 +54,7 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `packages/contracts` | Schémas Zod, types, machine à états, protocole ; aucun effet de bord au chargement |
 | `packages/persistence` | SQLite (`node:sqlite`), migrations, `record()` |
 | `packages/daemon` | API HTTP locale, WebSocket, bus d'événements, gérant des tâches, moteurs |
-| `packages/agent-runtime` | Boucle d'un agent : limites, approbations, résultat structuré |
+| `packages/agent-runtime` | Boucle d'un agent : approbations, résultat structuré ; aucune limite de tâche |
 | `packages/tools` | Outils des agents : lecture, écriture dans le worktree, `exec`, `http_fetch`, navigateur, délégation, outils MCP |
 | `packages/workspace` | Worktrees Git des agents écrivants |
 | `packages/browser` | Chromium jetable derrière un proxy gardé |
@@ -81,7 +81,7 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run desktop:bundle` | Construit l'application autonome : assemble, puis bundle Tauri (`.app`/`.dmg`, `.deb`, NSIS) ; non signée |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `doctor`, `desktop`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho. Aussi `providers test`, `providers remove`, `pricing`, `pricing refresh` |
-| `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés ; `agents limits <profil> --timeout 900` les règle (relèvement confirmé) |
+| `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
 | `npm run harness -- exec` | Liste blanche `exec` du dépôt : `allow` (avertit, confirme ; `--prefix` couvre tout ce qui suit, jamais un interpréteur nu), `revoke` |
 | `npm run harness -- mcp` | Serveurs MCP des agents : `add` (programme résolu, testé dans la foulée), `test`, `tools`, `allow` (avertit, confirme), `revoke`, `remove`, `attach`/`detach` (à un profil) |
@@ -94,7 +94,7 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run test:developer` | ~45 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris, liste blanche et préfixes `exec` |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~1 min — base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base ; les serveurs MCP : outil non coché ou changé jamais reçu par le serveur, secret d'un serveur jamais persisté, exécutant créé borné, aucun serveur après `SIGKILL` (`npx playwright install chromium` au préalable) |
-| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur : direct, approbation, reconnexion, diff d'une tâche Developer, arbre d'un orchestrateur, flux (conversation, sortie des commandes, approbation), lecture « navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP et limites aux Profils, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs » (`npm run build` et `npx playwright install chromium` au préalable) |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur : direct, approbation, reconnexion, diff d'une tâche Developer, arbre d'un orchestrateur, flux (conversation, sortie des commandes, approbation), lecture « navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP aux Profils, aucune limite à régler, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs » (`npm run build` et `npx playwright install chromium` au préalable) |
 | `npm run test:desktop` | ~2 min la première fois — les tests Rust de la coque (adresse du dashboard, arbre embarqué entier, lanceur, `PATH` du shell) |
 | `npm run test:standalone` | ~15 s — l'arbre embarqué assemblé puis lancé par son lanceur, hors du clone : aucune source ni lien, daemon de l'arbre, dashboard embarqué, conseils par le lanceur, aucun processus après `stop` (`npm run build` au préalable) ; dit si le Node du poste n'est pas embarquable |
 | `npm run test:live` | Payant, opt-in — un vrai modèle, coût comparé au solde du fournisseur ; s'abstient sans clé au coffre |
@@ -173,14 +173,25 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   `unknown`. Un modèle sans tarif connu n'affiche **pas** `0 $` : zéro est un
   coût, pas une ignorance. Quand le fournisseur annonce son propre coût, on garde
   l'estimation à côté — l'écart est la seule façon de voir dériver `pricing.json`.
-- **Les limites appartiennent au profil, pas à l'appel.** `tightenLimits` ne sait
-  qu'abaisser. **L'humain règle celles d'un profil** par une route à part
-  (`PUT /api/agents/:id/limits`) : bornées, journalisées avant → après, **un
-  relèvement se confirme** (CLI et dashboard), les tâches existantes gardent
-  les leurs ; le `PATCH` du modèle ignore toujours des limites glissées.
-- **Vérifier les limites AVANT l'appel modèle**, jamais après : une limite
-  constatée après coup a déjà été payée. Et `budget_exceeded` n'est pas `failed` —
-  rien n'a échoué, un plafond a été atteint.
+- **Midgaard ne borne plus une tâche** (décision de l'auteur, 2026-11-11) :
+  ni étapes, ni budget, ni délai, ni plafond d'appels d'outils par étape. Une
+  tâche d'agent s'arrête sur `submit_result`, sur une annulation, ou quand le
+  fournisseur refuse un appel — c'est **chez le fournisseur** que se pose un
+  plafond de dépense. Aucun profil, aucune tâche, aucun agent créé ne porte de
+  `limits` ; la route `PUT /api/agents/:id/limits`, `agents limits` et
+  `tightenLimits` n'existent plus. Le statut `budget_exceeded` reste dans la
+  machine à états pour les tâches anciennes, et n'est plus jamais produit.
+  **Ne pas en réintroduire sans demande explicite**, et ne rien annoncer à un
+  modèle ou à l'utilisateur comme un plafond : la consigne dit au modèle
+  qu'aucune limite ne l'arrêtera et que chaque appel est payé.
+- **L'annulation se regarde AVANT l'appel modèle** : c'est le seul arrêt que
+  la boucle décide, et un appel dont personne ne veut plus ne doit pas partir.
+- **Ce qui borne encore** : le nombre de sous-tâches actives en même temps
+  (`maxActiveSubtasks`), l'expiration d'une approbation et d'une attente de
+  l'utilisateur (`timed_out`), le délai propre d'une commande `exec`, celui
+  que l'humain approuve, et les jetons de sortie demandés par appel
+  (`MAX_OUTPUT_TOKENS`, un réglage d'appel que l'API exige, pas un plafond de
+  tâche).
 - **La fin d'une tâche est un acte, pas une interprétation.** Seul `submit_result`
   termine une tâche d'agent. Un modèle qui écrit « j'ai fini » n'a pas fini.
 - **Ce que lit un modèle ne nomme pas qui l'a délégué** : la consigne dit
@@ -305,10 +316,8 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   l'entrée, refusé ailleurs, effacé à la sortie par le dépôt.
 - **Un agent créé par un orchestrateur ne dépasse jamais son profil de base
   et n'existe que dans son arbre** : outils et consigne du profil, le rôle
-  ajouté après ; limites, serveurs MCP et modèle refusés avec motif au-delà.
-  Ailleurs, il répond comme un profil inconnu. **Le budget de l'orchestrateur
-  couvre tout son arbre**, contrôlé avant chaque appel de modèle de chaque
-  tâche, premier compris.
+  ajouté après ; serveurs MCP et modèle refusés avec motif au-delà.
+  Ailleurs, il répond comme un profil inconnu.
 - **Aucune sous-tâche ne survit à son parent.** Un parent en
   `cancel_requested` ou dans un statut final emporte ses sous-tâches actives ;
   le vérifier en **comptant les tâches actives en base**. Profondeur 1 : un

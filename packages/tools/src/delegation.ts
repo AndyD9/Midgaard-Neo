@@ -31,7 +31,7 @@
  *    pour l'orchestrateur.
  */
 import { z } from 'zod'
-import { requestedLimitsSchema, type ToolResult } from '@midgaard/contracts'
+import type { ToolResult } from '@midgaard/contracts'
 import {
   ToolError,
   truncate,
@@ -137,7 +137,7 @@ const listAgentsSchema = z.object({})
 export const listAgentsTool: Tool<z.infer<typeof listAgentsSchema>> = {
   name: 'list_agents',
   description:
-    'List the executor profiles you can delegate to: what each one does, its limits, and whether it is ' +
+    'List the executor profiles you can delegate to: what each one does and whether it is ' +
     'enabled (with the reason when it is not). Call it before delegating. Orchestrator ' +
     'profiles are not listed: you cannot delegate to another orchestrator.',
   schema: listAgentsSchema,
@@ -152,7 +152,6 @@ export const listAgentsTool: Tool<z.infer<typeof listAgentsSchema>> = {
         description: a.description,
         enabled: a.enabled,
         ...(a.disabled_reason ? { disabled_reason: a.disabled_reason } : {}),
-        limits: a.limits,
         // Seulement s'il y en a : un profil sans serveur MCP n'a rien à en dire.
         ...(a.mcp_servers.length ? { mcp_servers: a.mcp_servers } : {}),
         ...(a.created ? { created_by_you: true } : {}),
@@ -189,9 +188,6 @@ const createAgentSchema = z.object({
     .max(8)
     .optional()
     .describe('MCP servers to give it, among those of the base profile (see list_agents). None by default.'),
-  limits: requestedLimitsSchema
-    .optional()
-    .describe('Optional limits. They can only be equal to or LOWER than the base profile limits.'),
 })
 
 /**
@@ -204,7 +200,7 @@ export const createAgentTool: Tool<z.infer<typeof createAgentSchema>> = {
   description:
     'Create a specialised executor for this task, derived from a base profile, and return its agent_id for ' +
     'delegate_task. It keeps the base profile tools and rules; your role is added to them. You may pick another ' +
-    'model and some of the base profile MCP servers, and lower its limits; anything beyond the base profile is ' +
+    'model and some of the base profile MCP servers; anything beyond the base profile is ' +
     'refused with the reason. It exists only within this task.',
   schema: createAgentSchema,
   policy: (_args, ctx) => delegationPolicy(ctx),
@@ -238,9 +234,6 @@ const delegateSchema = z.object({
       'What you already know and the executor should not rediscover: relevant files, findings, constraints. ' +
         'Paying it to re-explore what you just read defeats the point of delegating.',
     ),
-  limits: requestedLimitsSchema
-    .optional()
-    .describe('Optional tighter limits for this subtask. They can only LOWER the profile limits, never raise them.'),
 })
 
 /** Crée une sous-tâche et rend la main tout de suite, sans l'attendre. */
@@ -249,7 +242,7 @@ export const delegateTaskTool: Tool<z.infer<typeof delegateSchema>> = {
   description:
     'Start a subtask on an executor profile and return its task_id immediately, without waiting. Delegate ' +
     'independent subtasks in the same step to run them in parallel, then call wait_for_task on each. The ' +
-    'subtask works on the same project as you. Each subtask has its own budget, set by its profile.',
+    'subtask works on the same project as you. Every subtask is paid model calls: delegate what is worth it.',
   schema: delegateSchema,
   policy: (_args, ctx) => delegationPolicy(ctx),
 
@@ -259,11 +252,10 @@ export const delegateTaskTool: Tool<z.infer<typeof delegateSchema>> = {
         agent_id: args.agent_id,
         objective: args.objective,
         context: args.context,
-        limits: args.limits,
       }),
     )
     const content = JSON.stringify(
-      { task_id: created.task_id, agent_id: created.agent_id, status: created.status, limits: created.limits },
+      { task_id: created.task_id, agent_id: created.agent_id, status: created.status },
       null,
       2,
     )
@@ -369,7 +361,7 @@ export const sendMessageTool: Tool<z.infer<typeof sendSchema>> = {
   description:
     'Reply to one of your subtasks that waits for you: answer its question, or send its proposal back with ' +
     'feedback. It resumes in the same conversation and, for a Developer, the same worktree, then you call ' +
-    'wait_for_task again. Each round costs steps and budget on both sides: give all your feedback at once.',
+    'wait_for_task again. Each round costs model calls on both sides: give all your feedback at once.',
   schema: sendSchema,
   policy: (_args, ctx) => delegationPolicy(ctx),
 

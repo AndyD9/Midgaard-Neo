@@ -87,12 +87,6 @@ export interface EngineContext {
     extra?: Record<string, unknown>,
   ): boolean
   /**
-   * Le budget de l'arbre d'une tâche (Slice 8) : le plafond de l'orchestrateur
-   * et ce qu'ont dépensé les **autres** tâches de l'arbre ; `null` hors arbre.
-   * Lu avant chaque appel de modèle, comme les limites de la tâche.
-   */
-  treeBudget(taskId: string): { limit: number; others: number } | null
-  /**
    * Le port de délégation d'une tâche `orchestrator` (Slice 5) : ce qu'elle
    * peut déléguer, attendre et annuler, rattaché à elle seule.
    *

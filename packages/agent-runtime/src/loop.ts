@@ -3,14 +3,12 @@
  *
  * Elle ne connaît ni le daemon, ni la base, ni le coffre : elle reçoit un
  * adaptateur, un contexte d'outils et des crochets. C'est ce qui permet de
- * l'éprouver avec un faux fournisseur, sans réseau et sans dépense — et c'est
- * dans ces conditions qu'on peut tester ce qui compte vraiment : qu'un budget
- * arrête bien la tâche **avant** l'appel de trop.
+ * l'éprouver avec un faux fournisseur, sans réseau et sans dépense.
  *
  * Déroulé d'une itération, dans cet ordre (§4 du plan) :
  *
  * ```text
- *  1. limites : annulation, délai, étapes, budget   ← AVANT l'appel modèle
+ *  1. annulation demandée ?                         ← AVANT l'appel modèle
  *  2. appel modèle
  *  3. consommation cumulée, diffusée
  *  4. pour chaque appel d'outil :
@@ -54,7 +52,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { Agent, InputRequest, TaskMode, TaskResult, ToolCallStatus, ToolDecision, ToolImage, Usage } from '@midgaard/contracts'
-import { addUsage, emptyUsage, wrapUntrusted } from '@midgaard/contracts'
+import { MAX_OUTPUT_TOKENS, addUsage, emptyUsage, wrapUntrusted } from '@midgaard/contracts'
 import type { Message, ProviderAdapter, ToolCallRequest } from '@midgaard/providers'
 import { ProviderError } from '@midgaard/providers'
 import {
@@ -70,20 +68,9 @@ import {
   type Tool,
   type ToolContext,
 } from '@midgaard/tools'
-import { budgetIsEnforceable, checkLimits, formatUsd, type StopReason } from './budget.ts'
+import { formatUsd } from './budget.ts'
 import { buildMessages, workspaceTree, type WorkspaceBrief } from './context.ts'
 import { OutputBatcher, type OutputBatch } from './output.ts'
-
-/**
- * À partir de combien d'appels de modèle restants l'agent est prévenu.
- *
- * Un modèle ne voit pas le compteur d'étapes : sans avertissement, il vérifie
- * « un dernier détail » jusqu'à la limite et finit `failed` avec la réponse en
- * main. C'est ce qu'a fait l'orchestrateur du second essai réel de la Slice 8 :
- * « The picture is complete » à l'étape 13, trois vérifications de plus, et la
- * limite de 16 étapes atteinte sans `submit_result`.
- */
-export const STEPS_WARNING = 2
 
 /**
  * Issue d'une demande d'approbation.
@@ -233,12 +220,6 @@ export interface LoopHooks {
   finishBlocked?(): string | null
   /** Vrai si une annulation a été demandée depuis le dernier point de contrôle. */
   isCancelled(): boolean
-  /**
-   * Le budget de l'arbre de la tâche (Slice 8), lu avant chaque appel de
-   * modèle : les autres tâches de l'arbre dépensent pendant que celle-ci
-   * travaille. Absent ou `null` : la tâche n'appartient à aucun arbre.
-   */
-  treeBudget?(): { limit: number; others: number } | null
 }
 
 /** Ce qu'il faut pour lancer une boucle. */
@@ -285,16 +266,10 @@ export type LoopOutcome =
 /** Issue d'une boucle qui n'a pas abouti à un résultat. */
 type FailedOutcome = Extract<LoopOutcome, { error: string }>
 
-/** Statut de tâche correspondant à chaque raison d'arrêt. */
-const STOP_STATUS: Record<StopReason['kind'], FailedOutcome['status']> = {
-  budget: 'budget_exceeded',
-  steps: 'failed',
-  timeout: 'timed_out',
-  cancelled: 'cancelled',
-}
-
 /**
- * Exécute un agent jusqu'à son résultat, sa limite ou son annulation.
+ * Exécute un agent jusqu'à son résultat ou son annulation. **Rien d'autre ne
+ * l'arrête** : ni nombre d'étapes, ni budget, ni délai (décision de l'auteur,
+ * 2026-11-11). Un fournisseur qui refuse un appel fait échouer la tâche.
  *
  * @returns l'issue et la consommation finale — **toujours** la consommation,
  *          même sur échec : ce qui a été dépensé a été dépensé, et le cacher
@@ -303,15 +278,10 @@ const STOP_STATUS: Record<StopReason['kind'], FailedOutcome['status']> = {
  */
 export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   const now = input.now ?? (() => Date.now())
-  const { limits } = { limits: input.agent.limits }
   const mode = input.mode ?? 'oneshot'
-  // Repoussée de la durée de chaque attente de message : le délai porte sur
-  // le temps où la tâche travaille, pas sur celui où elle attend quelqu'un.
-  let deadline = now() + limits.timeout_s * 1000
   let usage = emptyUsage()
   let step = 0
   let nudged = false
-  let stepsWarned = false
   // Combien de réponses sans appel d'outil ont été **coupées** au plafond de
   // sortie. C'est la différence entre « le modèle a refusé de conclure » et
   // « le modèle n'a pas eu la place de conclure » — deux pannes qui se
@@ -329,12 +299,11 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     tools = {
       ...input.tools,
       root: await canonicalRoot(input.tools.root),
-      // L'annulation et l'échéance de la tâche descendent jusqu'aux outils :
-      // une commande lancée par `exec` doit mourir avec la tâche, et ne pas
-      // durer au-delà de son délai — la boucle ne vérifie ses limites qu'entre
-      // deux appels de modèle.
+      // L'annulation descend jusqu'aux outils : une commande lancée par
+      // `exec` doit mourir avec la tâche — la boucle ne regarde l'annulation
+      // qu'entre deux appels de modèle. Aucune échéance n'est posée : une
+      // commande n'a que son propre délai, celui que l'humain a approuvé.
       signal: input.tools.signal ?? input.signal,
-      deadline: input.tools.deadline ?? deadline,
     }
   } catch (e) {
     return { status: 'failed', error: input.redact((e as Error).message), usage: emptyUsage() }
@@ -353,36 +322,14 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     context: input.context,
     root: tools.root,
     tree,
-    limits,
-    // Au premier tour, la consommation est vide : c'est le tarif du modèle qui
-    // dit si le budget pourra s'appliquer, et on ne le saura qu'après le premier
-    // appel. On annonce donc l'optimisme, et on corrige après coup si besoin.
-    budgetEnforceable: true,
     workspace: input.workspace,
     mode,
     delegated: input.delegated ?? false,
   })
 
-  /**
-   * Attend un message, sans que l'attente compte dans le délai : l'échéance est
-   * repoussée de sa durée, et celle des outils suit si c'est la boucle qui
-   * l'avait posée — une commande lancée après une heure d'attente ne doit pas
-   * se croire en retard.
-   */
-  const pause = async (
-    request: InputRequest,
-    text: string | null,
-    extra?: Record<string, unknown>,
-  ): Promise<InputOutcome> => {
-    const pausedAt = now()
-    const reply = await input.hooks.awaitInput!(request, text, step, extra)
-    deadline += now() - pausedAt
-    if (input.tools.deadline === undefined) {
-      tools = { ...tools, deadline }
-      input2 = { ...input, tools }
-    }
-    return reply
-  }
+  /** Attend un message de l'utilisateur ou du parent. */
+  const pause = (request: InputRequest, text: string | null, extra?: Record<string, unknown>): Promise<InputOutcome> =>
+    input.hooks.awaitInput!(request, text, step, extra)
 
   /** Issue d'une attente qui s'arrête sans message : annulée, ou expirée. */
   const stopped = (reply: InputOutcome): LoopOutcome | null => {
@@ -393,47 +340,29 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     return null
   }
 
-  let budgetWarned = false
   // Vrai dès qu'un contenu non fiable est entré dans la conversation : il
   // décide du drapeau `untrusted` du résultat final, cité ou non.
   let tainted = false
 
   while (true) {
-    const stop = checkLimits({
-      usage, step, limits, deadline, cancelled: input.hooks.isCancelled(), now: now(), tree: input.hooks.treeBudget?.(),
-    })
-    if (stop) {
+    // Le seul arrêt que la boucle décide d'elle-même : l'annulation, regardée
+    // avant chaque appel de modèle pour ne pas payer un appel dont personne ne
+    // veut plus.
+    if (input.hooks.isCancelled()) {
       return {
-        status: STOP_STATUS[stop.kind],
-        error: `${stop.detail} — ${usage.model_calls} appel(s) modèle, ${formatUsd(usage.cost_usd)}`,
+        status: 'cancelled',
+        error: `annulation demandée — ${usage.model_calls} appel(s) modèle, ${formatUsd(usage.cost_usd)}`,
         usage,
       }
     }
 
     step++
-    // `step` est l'appel qui part ; `left` le compte avec lui. L'avertissement
-    // part une fois à `STEPS_WARNING`, puis une dernière fois au dernier appel :
-    // deux messages au plus, pour ne pas payer un rappel à chaque tour.
-    const left = limits.max_steps - step + 1
-    if (left <= STEPS_WARNING && (left === 1 || !stepsWarned)) {
-      stepsWarned = true
-      input.hooks.onNote(`plus que ${left} appel(s) de modèle : l'agent est invité à conclure`, step)
-      messages.push({
-        role: 'user',
-        content:
-          left === 1
-            ? 'This is your last model call: the step limit is reached after it. Call submit_result now with ' +
-              'what you have, and say in it what remains uncertain. Any other tool call will be lost.'
-            : `You have ${left} model calls left, this one included. Stop investigating: call submit_result ` +
-              'with what you have, and say in it what remains uncertain.',
-      })
-    }
     let completion
     try {
       completion = await input.adapter.complete({
         messages,
         tools: specs,
-        maxOutputTokens: limits.max_output_tokens,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
         webSearch,
         signal: input.signal,
       })
@@ -447,17 +376,6 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
 
     usage = addUsage(usage, completion.usage)
     input.hooks.onUsage(usage, step)
-
-    // Prévenir une seule fois, et seulement une fois qu'on sait : annoncer
-    // l'inapplicabilité du budget avant le premier appel serait deviner.
-    if (!budgetWarned && !budgetIsEnforceable(usage)) {
-      budgetWarned = true
-      input.hooks.onNote(
-        `tarif inconnu pour « ${input.adapter.model} » : le budget en dollars ne peut pas être appliqué, ` +
-          `seule la limite de ${limits.max_steps} étapes borne cette tâche`,
-        step,
-      )
-    }
 
     // Une recherche web native n'est pas un appel d'outil : elle se produit
     // pendant la réponse. On la journalise après coup pour qu'elle reste
@@ -491,13 +409,9 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     messages.push({ role: 'assistant', content: completion.text, toolCalls: completion.toolCalls })
 
     if (completion.finishReason === 'length') {
-      // Le conseil s'adresse à qui lit la note — Claude, ou l'utilisateur. Ni
-      // l'un ni l'autre ne peut relever ce plafond : il appartient au profil, et
-      // `tightenLimits` ne sait qu'abaisser. Dire « relève max_output_tokens »
-      // envoyait donc vers une manette absente de `harness_delegate_task`.
       input.hooks.onNote(
-        `réponse coupée à ${limits.max_output_tokens} jetons de sortie ; demande une réponse plus courte ` +
-          `dans l'objectif — ce plafond appartient au profil de l'agent, une délégation ne peut que l'abaisser`,
+        `réponse coupée à ${MAX_OUTPUT_TOKENS} jetons de sortie, le maximum demandé au fournisseur par appel ; ` +
+          `demande une réponse plus courte dans l'objectif`,
         step,
       )
     }
@@ -530,10 +444,9 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
           status: 'failed',
           error:
             cutWithoutTools > 0
-              ? `réponse coupée à ${limits.max_output_tokens} jetons de sortie avant tout appel d'outil ` +
+              ? `réponse coupée à ${MAX_OUTPUT_TOKENS} jetons de sortie avant tout appel d'outil ` +
                 `(${cutWithoutTools} fois, relance comprise) : submit_result n'a jamais pu être émis. ` +
-                `L'objectif demande une réponse trop longue — demande-la plus courte. Ce plafond appartient ` +
-                `au profil de l'agent : une délégation ne peut que l'abaisser, jamais le relever.`
+                `L'objectif demande une réponse trop longue — demande-la plus courte.`
               : 'l\'agent s\'est arrêté sans appeler submit_result, même après relance — ' +
                 'aucun résultat structuré à remonter. Reformule l\'objectif pour qu\'il appelle une ' +
                 'réponse structurée, ou vérifie que submit_result lui est bien proposé.',
@@ -546,7 +459,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
         role: 'user',
         content:
           completion.finishReason === 'length'
-            ? `Your previous response was cut off at the output limit (${limits.max_output_tokens} tokens, ` +
+            ? `Your previous response was cut off at the output limit (${MAX_OUTPUT_TOKENS} tokens, ` +
               'reasoning included) before any tool call. Think briefly, then call submit_result now with a ' +
               'concise answer, or call one tool if you still need information.'
             : 'You did not call any tool. If you have the answer, call submit_result now with it. ' +
@@ -563,11 +476,9 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     nudged = false
     cutWithoutTools = 0
 
-    // Les fournisseurs savent demander plusieurs appels d'un coup. Au-delà de la
-    // limite du profil, les surnuméraires sont refusés — en le disant au modèle,
-    // pour qu'il les redemande à l'itération suivante plutôt que de les perdre.
-    const accepted = completion.toolCalls.slice(0, limits.max_tool_calls_per_step)
-    const refused = completion.toolCalls.slice(limits.max_tool_calls_per_step)
+    // Les fournisseurs savent demander plusieurs appels d'un coup : tous sont
+    // exécutés, dans l'ordre.
+    const accepted = completion.toolCalls
 
     // Les images rendues par les outils de l'étape (Slice 7). Elles rejoignent
     // le modèle **après tous les résultats de l'étape**, dans un message
@@ -634,15 +545,6 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
         images.push(...ran.images)
         if (ran.untrusted) untrustedImages = true
       }
-    }
-
-    for (const call of refused) {
-      messages.push({
-        role: 'tool',
-        callId: call.id,
-        name: call.name,
-        content: `Refused: at most ${limits.max_tool_calls_per_step} tool calls per step. Ask again next step.`,
-      })
     }
 
     if (images.length > 0) {

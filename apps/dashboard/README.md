@@ -101,19 +101,17 @@ Les routes, par le fragment d'URL : `#/tasks/<id>` (le flux de la tâche ;
 (formulaire « nouvelle tâche ») et `#/agents` (profils).
 
 - **Le formulaire ne propose que des profils actifs**, et nomme les autres avec
-  leur motif (`lib/agents.ts`, la même règle que le daemon). Il montre les
-  limites du profil sans manette pour les relever, et pour un orchestrateur son
-  **plafond théorique** de sous-tâches.
+  leur motif (`lib/agents.ts`, la même règle que le daemon). Il dit
+  qu'**aucune limite** ne borne la tâche — elle tourne jusqu'à son résultat,
+  une annulation ou un refus du fournisseur —, avant qu'on la lance.
 - **Le dossier de projet est vérifié par le daemon** (`checkProjectDir`) : il
   existe, c'est un dossier, ni `/` ni le dossier personnel. Le formulaire
   affiche le motif d'un refus tel quel. Le dernier dossier saisi est retenu
   dans le `localStorage` de ce navigateur — commodité de ce seul poste, qui ne
   porte rien de ce qui doit durer, et dont la page se passe.
 - **La vue « Profils » règle le fournisseur et le modèle** de chaque profil,
-  par `PATCH /api/agents/:id`, qui ignore des limites glissées dans son corps.
-  *Depuis la Slice 8, les limites s'y règlent aussi*, par leur route à elles
-  (`PUT /api/agents/:id/limits`), décision de l'auteur : un relèvement demande
-  confirmation, un abaissement non (D18).
+  par `PATCH /api/agents/:id`. **Aucune limite ne s'y règle** : il n'y en a
+  plus, ni à l'écran ni dans l'API (D18).
 - **La carte « Fournisseurs » déclare un fournisseur et dépose sa clé**, sans
   terminal (`components/ProvidersCard.tsx`), par la route qu'emploie déjà la
   CLI (`POST /api/providers`) : le daemon n'a pas changé. La clé se saisit dans
@@ -133,7 +131,7 @@ Les routes, par le fragment d'URL : `#/tasks/<id>` (le flux de la tâche ;
   orchestrateur, en retrait, dans l'ordre où il l'a déléguée. La carte
   « Sous-tâches » montre ce qu'il a délégué, celle qu'il attend (d'après le
   dernier `subtask.waiting`), le **total de l'arbre avec la plus faible
-  provenance de ses termes**, et le plafond théorique. Une sous-tâche nomme
+  provenance de ses termes**. Une sous-tâche nomme
   son parent.
 
 ## Comment c'est vérifié
@@ -175,11 +173,11 @@ qu'une suite qui rougit à chaque retouche de style.
 | `components/Timeline.tsx` | Le journal, rendu lisible |
 | `components/NewTaskForm.tsx` | « Nouvelle tâche » : profils actifs seulement, dossier vérifié par le daemon |
 | `components/AgentsCard.tsx` | Exécutants ; en vue « Profils », fournisseur et modèle de chacun |
-| `components/SubtasksCard.tsx` | Sous-tâches d'un orchestrateur, total et budget de l'arbre, agents créés et leur rôle |
+| `components/SubtasksCard.tsx` | Sous-tâches d'un orchestrateur, total de l'arbre et sa provenance, agents créés et leur rôle |
 | `components/ProvidersCard.tsx` | Fournisseurs : déclaration, clé déposée au coffre, test, retrait |
 | `lib/providers.ts` | Préréglages, validation d'une saisie de fournisseur, requête — fonctions pures |
 | `components/McpServersCard.tsx` | Serveurs MCP : test, catalogue, outils cochés (Slice 8) |
-| `lib/tree.ts` | Arbre des tâches, total et provenance, budget de l'arbre, agents créés — fonctions pures |
+| `lib/tree.ts` | Arbre des tâches, total et provenance, agents créés — fonctions pures |
 | `lib/mcp.ts` | Noms d'outils MCP, proposition « lecture seule », avertissement — fonctions pures |
 | `lib/agents.ts` | Motif d'un profil désactivé — fonction pure |
 | `components/TerminalView.tsx`, `lib/stream.ts` | Le flux : le journal de l'arbre en lignes, les approbations de l'arbre, l'invite |
@@ -225,7 +223,7 @@ retiré ; le flux porte ce qu'ils montraient.
   conversation ne survit pas au daemon. Tout le texte est rendu comme du texte.
 - **« annuler »**, dans l'en-tête du flux, annule la racine — donc l'arbre.
 - **Détails** (`TaskInspector`), à la demande : ce qui ne tient pas en
-  lignes — consommation, limites, sous-tâches et budget de l'arbre, diff
+  lignes — consommation, sous-tâches et total de l'arbre, diff
   d'un Developer, appels d'outils, timeline. La lecture choisie est gardée
   d'une tâche à l'autre **du même arbre** ; changer d'arbre ramène au flux.
 
@@ -290,8 +288,7 @@ rend absolus ses arguments-fichiers et saisit une valeur secrète sans écho. La
 carte donne les commandes.
 
 **Dans les appels d'outils**, un appel MCP porte le nom de son serveur. **Dans
-la carte « Sous-tâches »**, le budget de l'arbre — depuis la Slice 8, le
-`max_cost_usd` de l'orchestrateur couvre ses sous-tâches — et les agents qu'il
+la carte « Sous-tâches »**, les agents qu'il
 a créés, lus dans son journal (`agent.created`), **avec le rôle** qu'il leur a
 donné : c'est là que l'humain le relit.
 

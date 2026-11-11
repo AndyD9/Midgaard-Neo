@@ -65,7 +65,9 @@ export function TaskList({
             </div>
             <p className="mt-1.5 line-clamp-2 text-sm">{task.objective}</p>
             <p className="mt-1 font-mono text-[11px] text-muted">
-              {task.agent_id} · étape {task.step}/{task.steps_total}
+              {task.agent_id} · étape {task.step}
+              {/* Un agent réel n'a pas de nombre d'étapes prévu : pas de dénominateur inventé. */}
+              {task.steps_total > 0 && `/${task.steps_total}`}
               {children > 0 && ` · ${children} sous-tâche(s)`}
               {/* Le coût n'apparaît que s'il a été mesuré : afficher « 0 $ » sur
                   une tâche qui n'a appelé aucun modèle serait une mesure fausse. */}

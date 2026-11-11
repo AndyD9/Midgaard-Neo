@@ -2,8 +2,9 @@
 
 Un harness local d'agents, dans l'esprit d'OpenCode : tu parles à un
 **orchestrateur**, qui délègue à des **agents exécutants**, chacun sur le
-fournisseur et le modèle de ton choix. Tu **vois ce qu'ils font**, tu leur fixes
-un **budget**, et les actions sensibles attendent ton **approbation**.
+fournisseur et le modèle de ton choix. Tu **vois ce qu'ils font** et ce qu'ils coûtent,
+et les actions sensibles attendent ton **approbation**. Midgaard ne borne pas
+une tâche : un plafond de dépense se pose chez le fournisseur.
 
 Les agents ont trois capacités, et rien d'autre :
 
@@ -53,7 +54,7 @@ Deux choses restent de l'origine, à connaître :
 
 Ce qui marche, vérifié par les suites de tests : l'orchestrateur et ses
 sous-tâches, les profils Researcher, Developer et Navigator, les approbations,
-les budgets et les coûts, le coffre des clés, les serveurs MCP des agents, le
+les coûts et leur provenance, le coffre des clés, les serveurs MCP des agents, le
 dashboard, une interface tout terminal (le flux d'un arbre de tâches, ses
 approbations, l'invite vers l'orchestrateur).
 
@@ -205,7 +206,7 @@ apps/
 packages/
   contracts/      Schémas et types partagés
   daemon/         Tâches, moteurs, API HTTP et WebSocket
-  agent-runtime/  Boucle d'agent, contexte, budget
+  agent-runtime/  Boucle d'agent, contexte, coût
   tools/          Outils des agents : fichiers, exec, web, navigateur, MCP, délégation
   providers/      Adaptateurs de modèles, tarifs
   browser/        Chromium isolé derrière un proxy gardé

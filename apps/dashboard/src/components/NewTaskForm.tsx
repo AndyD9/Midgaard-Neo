@@ -11,9 +11,9 @@
  *  - **le dossier de projet est vérifié par le daemon**, pas ici : il existe,
  *    c'est un dossier, et ce n'est ni `/` ni le dossier personnel. Le formulaire
  *    affiche le motif du refus tel que le daemon l'écrit ;
- *  - **les limites sont celles du profil**, affichées sans manette pour les
- *    relever ici : une tâche ne relève pas son budget. Elles se règlent aux
- *    Profils, pour les tâches à venir, avec confirmation (Slice 8).
+ *  - **aucune limite n'est annoncée, parce qu'il n'y en a plus** : le
+ *    formulaire dit qu'une tâche tourne jusqu'à son résultat, une annulation
+ *    ou un refus du fournisseur — c'est à savoir avant de lancer.
  *
  * Le dernier dossier saisi est retenu dans le navigateur (`localStorage`),
  * commodité de ce seul poste : rien de ce qui doit durer n'y est rangé, et la
@@ -24,7 +24,6 @@ import { Play } from 'lucide-react'
 import type { Agent, ProviderConfig } from '@midgaard/contracts'
 import { ApiError, createTask, fetchAgents, fetchProviders } from '@/lib/api'
 import { disabledReason } from '@/lib/agents'
-import { subtaskCeiling } from '@/lib/tree'
 import { formatCost } from '@/lib/utils'
 import { Button } from './ui/button'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
@@ -153,20 +152,11 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
           {selected && (
             <div className="space-y-1 rounded-md border border-border bg-canvas px-3 py-2 text-xs text-muted">
               <p>{selected.description}</p>
-              <p className="font-mono">
-                {selected.limits.max_steps} étapes · {formatCost(selected.limits.max_cost_usd)} ·{' '}
-                {selected.limits.timeout_s} s — limites du profil
+              <p data-testid="new-task-unbounded">
+                Aucune limite d'étapes, de budget ni de durée : la tâche tourne jusqu'à son résultat, ton
+                annulation, ou un refus du fournisseur.
+                {selected.kind === 'orchestrator' && ' L\'orchestrateur délègue à des sous-tâches, qui coûtent chacune leurs appels.'}
               </p>
-              {selected.kind === 'orchestrator' && (
-                // Depuis la Slice 8, le budget de l'orchestrateur couvre tout
-                // son arbre : on le dit avant le lancement, avec le plafond en
-                // nombre, qui reste.
-                <p data-testid="new-task-ceiling">
-                  Ce budget couvre tout l'arbre : l'orchestrateur et chacune de ses sous-tâches. Il peut lancer
-                  jusqu'à {subtaskCeiling(selected)} sous-tâches, et créer ses propres exécutants à partir des
-                  profils, sans jamais dépasser leurs limites.
-                </p>
-              )}
             </div>
           )}
 

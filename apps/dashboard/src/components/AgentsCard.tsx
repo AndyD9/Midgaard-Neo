@@ -13,9 +13,8 @@
  *
  * **Ce qui s'y règle, depuis la Slice 5** (`editable`, vue « Profils ») : le
  * fournisseur et le modèle de chaque profil, par `PATCH /api/agents/:id`.
- * **Depuis la Slice 8**, aussi ses limites (`PUT /api/agents/:id/limits`),
- * décision de l'auteur qui revient sur la Slice 5 : un relèvement demande
- * confirmation, le daemon borne chaque valeur et journalise le changement.
+ * Aucune limite ne s'y règle : Midgaard ne borne plus une tâche (décision de
+ * l'auteur, 2026-11-11), c'est chez le fournisseur que se pose un plafond.
  *
  * **Depuis la Slice 7**, aussi la déclaration « ce modèle lit les images », pour
  * un profil qui a des outils d'image, quand le fournisseur ne publie pas la
@@ -28,8 +27,8 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
-import type { Agent, AgentLimits, McpServerView, ProviderConfig } from '@midgaard/contracts'
-import { ApiError, fetchAgents, fetchMcpServers, fetchProviders, setAgentLimits, setAgentMcp, updateAgent } from '@/lib/api'
+import type { Agent, McpServerView, ProviderConfig } from '@midgaard/contracts'
+import { ApiError, fetchAgents, fetchMcpServers, fetchProviders, setAgentMcp, updateAgent } from '@/lib/api'
 import { useHarnessCommand } from '@/lib/advice'
 import { disabledReason } from '@/lib/agents'
 import { Badge } from './ui/badge'
@@ -136,7 +135,6 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
               {editable && agent.provider_id !== null && agent.tools.some((t) => t === 'read_image' || t.startsWith('browser_')) && (
                 <VisionEditor agent={agent} onSaved={load} />
               )}
-              {editable && agent.kind !== 'simulated' && <LimitsEditor agent={agent} onSaved={load} />}
               {editable && MCP_KINDS.has(agent.kind) && data.mcp.length > 0 ? (
                 <McpEditor agent={agent} servers={data.mcp} onSaved={load} />
               ) : (
@@ -347,84 +345,6 @@ function McpEditor({ agent, servers, onSaved }: { agent: Agent; servers: McpServ
           <span className="font-mono">{s.id}</span>
         </label>
       ))}
-      {message && <span className={message.ok ? 'text-done' : 'text-danger'}>{message.text}</span>}
-    </div>
-  )
-}
-
-/** Les limites réglables, leur libellé, et leur pas de saisie. */
-const LIMIT_FIELDS: { key: keyof AgentLimits; label: string; step: number }[] = [
-  { key: 'max_steps', label: 'étapes', step: 1 },
-  { key: 'max_cost_usd', label: '$', step: 0.01 },
-  { key: 'timeout_s', label: 's', step: 1 },
-  { key: 'max_output_tokens', label: 'jetons de sortie', step: 1 },
-  { key: 'max_tool_calls_per_step', label: 'appels par étape', step: 1 },
-]
-
-/**
- * Les limites d'un profil (Slice 8), réglées par `PUT /api/agents/:id/limits`.
- *
- * Un **relèvement** passe par une confirmation qui dit ce qui monte : le budget
- * est la protection contre une dépense qui s'emballe, et le relever doit être
- * un geste. Le daemon borne chaque valeur ; son refus s'affiche tel quel.
- */
-function LimitsEditor({ agent, onSaved }: { agent: Agent; onSaved: () => void }) {
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    Object.fromEntries(LIMIT_FIELDS.map((f) => [f.key, String(agent.limits[f.key])])),
-  )
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
-
-  const asked: Partial<AgentLimits> = {}
-  for (const f of LIMIT_FIELDS) {
-    const value = Number(draft[f.key])
-    if (draft[f.key]?.trim() && Number.isFinite(value) && value !== agent.limits[f.key]) asked[f.key] = value
-  }
-  const keys = Object.keys(asked) as (keyof AgentLimits)[]
-
-  async function save(): Promise<void> {
-    const raised = keys.filter((k) => asked[k]! > agent.limits[k])
-    if (raised.length) {
-      const lines = raised.map((k) => `${k} : ${agent.limits[k]} → ${asked[k]}`).join('\n')
-      const tree = agent.kind === 'orchestrator' && raised.includes('max_cost_usd')
-        ? '\n\nLe budget de l’orchestrateur couvre tout son arbre : ses sous-tâches dépenseront jusque-là.'
-        : ''
-      if (!window.confirm(`Tu relèves des limites de ${agent.id} :\n\n${lines}${tree}\n\nCela vaut pour les tâches à venir.`)) return
-    }
-    setSaving(true)
-    setMessage(null)
-    try {
-      await setAgentLimits(agent.id, asked)
-      setMessage({ ok: true, text: 'limites enregistrées — pour les tâches à venir' })
-      onSaved()
-    } catch (e) {
-      setMessage({ ok: false, text: e instanceof ApiError && e.reason ? e.reason : (e as Error).message })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-xs" data-testid={`agent-limits-${agent.id}`}>
-      <span className="text-muted">Limites :</span>
-      {LIMIT_FIELDS.map((f) => (
-        <label key={f.key} className="flex items-center gap-1">
-          <input
-            type="number"
-            min={0}
-            step={f.step}
-            className="w-20 rounded border border-border bg-surface px-1.5 py-0.5 font-mono"
-            value={draft[f.key]}
-            onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-            aria-label={`${f.key} de ${agent.id}`}
-            data-testid={`agent-limit-${agent.id}-${f.key}`}
-          />
-          <span className="text-muted">{f.label}</span>
-        </label>
-      ))}
-      <Button size="sm" variant="outline" disabled={keys.length === 0 || saving} onClick={() => void save()} data-testid={`agent-limits-save-${agent.id}`}>
-        <Save /> Enregistrer
-      </Button>
       {message && <span className={message.ok ? 'text-done' : 'text-danger'}>{message.text}</span>}
     </div>
   )

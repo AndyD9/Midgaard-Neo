@@ -11,14 +11,14 @@ import { describe, it } from 'node:test'
 import { emptyUsage, type McpCatalogEntry, type Task, type TaskEvent } from '@midgaard/contracts'
 import { readOnlyCandidates as cliCandidates } from '@midgaard/cli'
 import { allowWarning, hintsOf, readOnlyCandidates, splitMcpName } from '../../apps/dashboard/src/lib/mcp.ts'
-import { createdAgents, treeBudget } from '../../apps/dashboard/src/lib/tree.ts'
+import { createdAgents } from '../../apps/dashboard/src/lib/tree.ts'
 
 function entry(name: string, annotations: Record<string, unknown> | null, status: McpCatalogEntry['status'] = 'approval'): McpCatalogEntry {
   return { name, title: null, description: '', input_schema: {}, annotations, fingerprint: '0'.repeat(64), status, allowed_by: null, allowed_at: null }
 }
 
 function task(over: Partial<Task>): Task {
-  return { usage: emptyUsage(), limits: { max_steps: 10, max_cost_usd: 1, timeout_s: 60, max_output_tokens: 1000, max_tool_calls_per_step: 4 }, ...over } as Task
+  return { usage: emptyUsage(), ...over } as Task
 }
 
 describe('outils MCP', () => {
@@ -48,18 +48,6 @@ describe('outils MCP', () => {
     assert.match(warning, /SANS APPROBATION/)
     assert.match(warning, /pas borné au projet/)
     assert.match(warning, /a, b/)
-  })
-})
-
-describe('budget de l\'arbre', () => {
-  it('somme les coûts connus de l\'arbre, et compte à part les inconnus', () => {
-    const parent = task({ id: 'p', usage: { ...emptyUsage(), model_calls: 2, cost_usd: 0.2, cost_source: 'provider' } })
-    const children = [
-      task({ id: 'a', usage: { ...emptyUsage(), model_calls: 1, cost_usd: 0.3, cost_source: 'pricing_table' } }),
-      task({ id: 'b', usage: { ...emptyUsage(), model_calls: 1, cost_usd: 0, cost_source: 'unknown' } }),
-      task({ id: 'c' }),
-    ]
-    assert.deepEqual(treeBudget(parent, children), { limit: 1, spent: 0.5, unknown: 1 })
   })
 })
 

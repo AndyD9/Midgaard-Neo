@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, it } from 'node:test'
-import { DEFAULT_RESEARCHER_LIMITS, IllegalTransitionError, loadConfig } from '@midgaard/contracts'
+import { IllegalTransitionError, loadConfig } from '@midgaard/contracts'
 import { HarnessStore, MIGRATIONS, SCHEMA_VERSION, migrate } from '@midgaard/persistence'
 
 let home: string
@@ -32,7 +32,6 @@ function newTask(needsApproval = false) {
     agentId: 'simulated',
     context: null,
     projectDir: null,
-    limits: DEFAULT_RESEARCHER_LIMITS,
     durationS: 10,
     stepsTotal: 5,
     needsApproval,
@@ -143,7 +142,7 @@ describe('migration 10', () => {
     for (const m of MIGRATIONS.filter((m) => m.version <= 9)) old.exec(m.sql)
     old.exec('PRAGMA user_version = 9')
     old.exec(`INSERT INTO agents (id, name, kind, description, system_prompt, tools_json, limits_json, enabled, created_at, updated_at)
-              VALUES ('r', 'R', 'researcher', '', '', '[]', '${JSON.stringify(DEFAULT_RESEARCHER_LIMITS)}', 1,
+              VALUES ('r', 'R', 'researcher', '', '', '[]', '{"max_steps":12,"max_cost_usd":0.5,"timeout_s":300,"max_output_tokens":4096,"max_tool_calls_per_step":5}', 1,
                       '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`)
     old.close()
     const migrated = HarnessStore.open({ dbPath: join(home, 'v9.db') })
@@ -165,7 +164,6 @@ describe('mode d\'une tâche', () => {
       agentId: 'simulated',
       context: null,
       projectDir: null,
-      limits: DEFAULT_RESEARCHER_LIMITS,
       durationS: 10,
       stepsTotal: 5,
       needsApproval: false,
@@ -246,7 +244,6 @@ describe('tâche déléguée par une tâche', () => {
       agentId: 'simulated',
       context: null,
       projectDir: null,
-      limits: DEFAULT_RESEARCHER_LIMITS,
       durationS: 10,
       stepsTotal: 5,
       needsApproval: false,
@@ -267,7 +264,6 @@ describe('tâche déléguée par une tâche', () => {
         agentId: 'simulated',
         context: null,
         projectDir: null,
-        limits: DEFAULT_RESEARCHER_LIMITS,
         durationS: 10,
         stepsTotal: 5,
         needsApproval: false,

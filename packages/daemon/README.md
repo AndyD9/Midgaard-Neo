@@ -98,15 +98,16 @@ Un orchestrateur crée ses exécutants par `create_agent`
 rattachée à **sa** tâche : `agentFor` le résout à partir de son profil de base
 — mêmes outils, consigne du profil **puis** le rôle —, et `create` le refuse
 hors de son arbre, avec la réponse d'un profil inconnu. Tout ce qui dépasserait
-le profil de base est **refusé avec le motif** : limites, serveurs MCP que le
-profil n'a pas, fournisseur inconnu, modèle non offert ou sans tarif connu.
+le profil de base est **refusé avec le motif** : serveurs MCP que le
+profil n'a pas, fournisseur inconnu, modèle non offert.
 
-Le `max_cost_usd` de l'orchestrateur couvre **tout son arbre**
-(`treeBudget`) : la boucle de chaque tâche le lit avant chaque appel de
-modèle, et s'arrête en `budget_exceeded` quand sa dépense plus celle des
-autres l'atteint — dès le premier appel. `delegate` refuse une sous-tâche une
-fois le budget dépensé, ou quand `maxActiveSubtasks` sont déjà actives
-(`MIDGAARD_MAX_ACTIVE_SUBTASKS`, 4 par défaut).
+**Aucune limite ne borne une tâche** (décision de l'auteur, 2026-11-11) : ni
+étapes, ni budget, ni délai, pour une tâche comme pour un arbre. `delegate`
+ne refuse une sous-tâche que lorsque `maxActiveSubtasks` sont déjà actives
+(`MIDGAARD_MAX_ACTIVE_SUBTASKS`, 4 par défaut). Une tâche d'agent a
+`steps_total: 0` : aucun nombre d'étapes n'est prévu, et l'affichage n'invente
+pas de dénominateur. Les colonnes `limits_json` restent en base, remplies de
+`{}` : une migration publiée ne se modifie plus.
 
 ## Conversations (Slice 6)
 

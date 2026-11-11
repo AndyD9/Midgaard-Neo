@@ -16,7 +16,7 @@ les tests et (pour les types) le dashboard.
 | `protocol.ts` | `PROTOCOL_VERSION`, formes des réponses HTTP, messages WebSocket |
 | `runtime.ts` | Fichier de découverte du daemon (lecture, écriture atomique, `pidAlive`) |
 | `client.ts` | `daemonFetch` / `daemonJson` — client HTTP authentifié |
-| `agent.ts` | Profils d'agents exécutants : modèle, outils, limites |
+| `agent.ts` | Profils d'agents exécutants : modèle, outils ; `MAX_OUTPUT_TOKENS` |
 | `provider.ts` | Configuration des fournisseurs de modèles ; la clé n'y est qu'une référence au coffre |
 | `usage.ts` | Consommation et coût, toujours avec sa provenance (`cost_source`) |
 | `exec-allow.ts` | Liste blanche `exec` : `execPrefixRefusal` (quel préfixe est refusé, et pourquoi — Slice 9 ; `READ_ONLY_ANALYSIS` accepte une option en tête pour `objdump`/`nm`/`strings`… — Slice 10), `execRuleMatches`, `programFamily` |

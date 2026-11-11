@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
-import { DEFAULT_RESEARCHER_LIMITS, emptyUsage, type Agent, type TaskResult } from '@midgaard/contracts'
+import { emptyUsage, type Agent, type TaskResult } from '@midgaard/contracts'
 import type { CompletionRequest, ProviderAdapter } from '@midgaard/providers'
 import { runAgent, type LoopHooks } from '@midgaard/agent-runtime'
 import { DELEGATION_TOOLS, ToolError, findTool, type DelegationPort, type SubtaskState, type ToolContext } from '@midgaard/tools'
@@ -34,7 +34,6 @@ function ended(result: Partial<TaskResult> = {}): SubtaskState {
     result: { summary: 'réponse', details: '', steps: [], citations: [], untrusted: false, workspace: null, ...result },
     error: null,
     usage: { ...emptyUsage(), model_calls: 2, cost_usd: 0.004, cost_source: 'provider' },
-    limits: DEFAULT_RESEARCHER_LIMITS,
     awaiting: null,
   }
 }
@@ -48,11 +47,11 @@ function fakePort(over: Partial<DelegationPort> = {}) {
     listAgents: () => [
       {
         id: 'researcher', name: 'Researcher', kind: 'researcher', description: 'lit', enabled: true,
-        disabled_reason: null, limits: DEFAULT_RESEARCHER_LIMITS, mcp_servers: [{ id: 'rea', name: 'REA' }],
+        disabled_reason: null, mcp_servers: [{ id: 'rea', name: 'REA' }],
       },
       {
         id: 'developer', name: 'Developer', kind: 'developer', description: 'écrit', enabled: false,
-        disabled_reason: 'no model provider is configured for this profile', limits: DEFAULT_RESEARCHER_LIMITS,
+        disabled_reason: 'no model provider is configured for this profile',
         mcp_servers: [],
       },
     ],
@@ -60,7 +59,7 @@ function fakePort(over: Partial<DelegationPort> = {}) {
       asked.created.push(request)
       return {
         agent_id: 'reverser-abc123', name: request.name, base: request.base, provider_id: 'faux', model: null,
-        mcp_servers: request.mcp_servers ?? [], limits: DEFAULT_RESEARCHER_LIMITS,
+        mcp_servers: request.mcp_servers ?? [],
       }
     },
     delegate: (request) => {
@@ -158,7 +157,8 @@ describe('avec un port', () => {
       ctx(port),
     )
     assert.deepEqual(asked.delegated, [
-      { agent_id: 'researcher', objective: 'cherche', context: 'déjà lu : a.ts', limits: { max_cost_usd: 0.1 } },
+      // Des `limits` glissées par le modèle ne passent pas : l'outil n'en a plus.
+      { agent_id: 'researcher', objective: 'cherche', context: 'déjà lu : a.ts' },
     ])
     assert.equal(JSON.parse(result!.content).task_id, CHILD)
     assert.equal(result!.untrusted, false)
@@ -282,8 +282,7 @@ describe('dans la boucle réelle', () => {
     }
     const agent: Agent = {
       id: 'orchestrator', name: 'Orchestrator', kind: 'orchestrator', description: '', provider_id: 'faux',
-      model: null, system_prompt: 'You orchestrate.', tools: ['wait_for_task', 'submit_result'],
-      limits: DEFAULT_RESEARCHER_LIMITS, enabled: true, vision: null, mcp_servers: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      model: null, system_prompt: 'You orchestrate.', tools: ['wait_for_task', 'submit_result'], enabled: true, vision: null, mcp_servers: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }
     const root = mkdtempSync(join(tmpdir(), 'midgaard-deleg-'))
     try {

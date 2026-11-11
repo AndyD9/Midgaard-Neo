@@ -14,9 +14,7 @@ import type { z } from 'zod'
 import type { McpPort } from './mcp.ts'
 import type {
   AgentKind,
-  AgentLimits,
   ExecAllowRule,
-  RequestedLimits,
   TaskResult,
   TaskStatus,
   ToolDecision,
@@ -213,8 +211,6 @@ export interface DelegableAgent {
   enabled: boolean
   /** Pourquoi le profil ne peut pas recevoir de tâche ; `null` s'il le peut. */
   disabled_reason: string | null
-  /** Plafonds du profil : une délégation peut les abaisser, jamais les relever. */
-  limits: AgentLimits
   /**
    * Serveurs MCP dont ce profil reçoit les outils (Slice 8) : c'est ce qui
    * permet à l'orchestrateur de choisir à qui confier un travail qui en a besoin.
@@ -241,8 +237,6 @@ export interface CreateAgentRequest {
   model?: string | undefined
   /** Sous-ensemble des serveurs MCP du profil de base ; aucun par défaut. */
   mcp_servers?: string[] | undefined
-  /** Limites, au plus celles du profil de base. */
-  limits?: RequestedLimits | undefined
 }
 
 /** Un agent créé, tel que l'orchestrateur le reçoit. */
@@ -253,7 +247,6 @@ export interface CreatedAgentInfo {
   provider_id: string
   model: string | null
   mcp_servers: string[]
-  limits: AgentLimits
 }
 
 /** Une sous-tâche, telle que la délégation la rend à l'orchestrateur. */
@@ -267,8 +260,6 @@ export interface SubtaskState {
   result: TaskResult | null
   error: string | null
   usage: Usage
-  /** Limites effectivement appliquées à la sous-tâche. */
-  limits: AgentLimits
   /**
    * Ce que la sous-tâche attend de son parent, si elle attend (Slice 6) :
    * une réponse à sa question, ou un verdict sur sa proposition. **Donnée**,
@@ -305,7 +296,6 @@ export interface DelegateRequest {
   agent_id: string
   objective: string
   context?: string | undefined
-  limits?: RequestedLimits | undefined
 }
 
 /** Pourquoi une attente de sous-tâche a rendu la main. */

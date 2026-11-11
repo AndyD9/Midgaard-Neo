@@ -50,7 +50,7 @@
  *
  * Ce qui est déjà prouvé ailleurs n'est pas rejoué : `Host` et `Origin`
  * étrangers, WebSocket comprise (`restart.ts`, R4) ; approbation à usage
- * unique et expiration (`store.test.ts`, R5) ; budget (`agent-runtime.test.ts`).
+ * unique et expiration (`store.test.ts`, R5).
  * La table complète, promesse par promesse, est dans docs/SLICE4.md.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
@@ -1041,10 +1041,8 @@ await scenario(outcomes, 'X11 la valeur secrète d\'un serveur MCP ne persiste n
 
 await scenario(outcomes, 'X12 un exécutant créé ne dépasse pas son profil, n\'existe que dans son arbre, et son rôle est expurgé', async () => {
   const repo = makeRepo('x12')
-  const max = (await call<{ agent: { limits: { max_cost_usd: number } } }>(rt, '/api/agents/researcher')).body.agent.limits.max_cost_usd
   provider.scripts.set('[X12-enfant]', [submit('lu')])
   const task = await delegate('orchestrator', '[X12]', repo, [
-    [{ tool: 'create_agent', args: { name: 'Trop cher', base: 'researcher', role: 'r', limits: { max_cost_usd: max * 10 } } }],
     [{ tool: 'create_agent', args: { name: 'Hors profil', base: 'developer', role: 'r', mcp_servers: ['sec'] } }],
     [{ tool: 'create_agent', args: { name: 'Lecteur', base: 'researcher', role: `Garde ${THIRD_PARTY} pour toi.`, mcp_servers: ['sec'] } }],
     [{ tool: 'delegate_task', args: { agent_id: '{{agent_id}}', objective: '[X12-enfant] lis le README' } }],
@@ -1055,9 +1053,8 @@ await scenario(outcomes, 'X12 un exécutant créé ne dépasse pas son profil, n
   const problems: string[] = []
   if (done.task.status !== 'completed') problems.push(`statut ${done.task.status} — ${done.task.error}`)
   const creations = (await toolCalls(rt, task.id)).filter((c) => c.name === 'create_agent')
-  if (!creations[0]?.error?.includes('limits above the base profile')) problems.push(`limites trop hautes : ${creations[0]?.error ?? 'acceptées'}`)
-  if (!creations[1]?.error?.includes('not available to the base profile')) problems.push(`serveur hors profil : ${creations[1]?.error ?? 'accepté'}`)
-  if (creations[2]?.error) problems.push(`création légitime refusée : ${creations[2].error}`)
+  if (!creations[0]?.error?.includes('not available to the base profile')) problems.push(`serveur hors profil : ${creations[0]?.error ?? 'accepté'}`)
+  if (creations[1]?.error) problems.push(`création légitime refusée : ${creations[1].error}`)
   const created = (await events(task.id)).find((e) => e.type === 'agent.created')
   const agentId = String(created?.payload.agent_id ?? '')
   if (!created) problems.push('aucun agent.created au journal')

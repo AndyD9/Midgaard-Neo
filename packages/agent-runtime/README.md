@@ -46,10 +46,10 @@ poser — et a publié ce diagnostic, faux. Un message incomplet ne laisse pas s
 lecteur sans réponse, il lui en fait inventer une.
 
 **Un conseil doit viser une manette que son lecteur peut atteindre.** La boucle
-conseillait de « relever `max_output_tokens` » : ce plafond appartient au
-profil, et `tightenLimits` ne sait qu'abaisser — relever est impossible depuis
-une délégation. Les conseils renvoient désormais à l'objectif, ou à `max_steps`
-jusqu'au plafond du profil.
+conseillait de « relever `max_output_tokens` », que personne ne pouvait
+relever. Une réponse coupée renvoie désormais à l'objectif : demander une
+réponse plus courte. `MAX_OUTPUT_TOKENS` est un réglage d'appel, le même pour
+tous, que l'API des fournisseurs exige.
 
 **Tout ce qui vient du dehors est encadré, même pour l'agent.** Un résultat
 `untrusted` est enveloppé avant d'être réinjecté dans la conversation de l'agent
@@ -156,15 +156,18 @@ approbation, exécution, encadrement du résultat non fiable.
 
 ## Statuts d'arrêt
 
-| Raison | Statut | Pourquoi pas `failed` |
-|---|---|---|
-| budget atteint | `budget_exceeded` | rien n'a échoué, un plafond a été atteint |
-| délai dépassé | `timed_out` | idem |
-| annulation | `cancelled` | demandée par un humain |
-| étapes épuisées sans résultat | `failed` | là, quelque chose n'a pas marché |
+| Raison | Statut |
+|---|---|
+| `submit_result` | `completed` |
+| annulation, regardée avant chaque appel de modèle | `cancelled` |
+| le fournisseur refuse un appel (solde, quota, panne) | `failed`, avec son motif |
+| le modèle s'arrête sans `submit_result`, même relancé | `failed` |
+| personne ne répond à une attente (conversation, approbation) | `timed_out` |
 
-Confondre les deux premiers avec `failed` enverrait l'utilisateur chercher un
-bogue là où il n'y a qu'une limite à relever.
+**Rien d'autre n'arrête une tâche** : ni nombre d'étapes, ni budget, ni délai
+(décision de l'auteur, 2026-11-11). Un plafond de dépense se pose chez le
+fournisseur, dont le refus fait échouer la tâche. Le coût reste mesuré et
+rendu avec chaque issue, échec compris. `budget_exceeded` n'est plus produit.
 
 ## Contexte
 

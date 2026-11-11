@@ -139,7 +139,7 @@ function detail(event: TaskEvent): string | null {
   const p = event.payload as Record<string, unknown>
   switch (event.type) {
     case 'task.progress':
-      return `${p.step}/${p.steps_total}`
+      return Number(p.steps_total) > 0 ? `${p.step}/${p.steps_total}` : String(p.step)
     case 'approval.requested':
       return String(p.operation ?? '')
     case 'approval.resolved': {

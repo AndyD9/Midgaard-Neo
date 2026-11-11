@@ -324,8 +324,7 @@ d'approbation — fermé par défaut, comme `writable` : déléguer est une capa
 de profil, pas une opération qu'un humain accorderait au coup par coup.
 
 Les règles qui protègent ne sont **pas** ici : profondeur 1, parent actif et
-orchestrateur, dossier hérité du parent, limites plafonnées par le profil de
-l'enfant, rattachement par `parent_task_id`. Elles vivent dans
+orchestrateur, dossier hérité du parent, rattachement par `parent_task_id`. Elles vivent dans
 `TaskManager.create`, seul endroit où une tâche naît ; une seconde copie dans
 l'outil finirait par diverger. Le port est lié à sa tâche : il ne voit, n'attend
 et n'annule que ses propres sous-tâches.

@@ -1,13 +1,12 @@
 /**
- * @file Profils d'agents exécutants : qui exécute, avec quel modèle, quels
- * outils et quelles limites.
+ * @file Profils d'agents exécutants : qui exécute, avec quel modèle et quels
+ * outils.
  *
- * Un profil répond à trois questions, et les limites sont la troisième **parce
- * qu'elles sont une propriété du profil, pas une option de l'appel**. Si Claude
- * pouvait fixer le budget à chaque délégation, le budget ne protégerait plus
- * personne : il suffirait d'un modèle mal luné pour demander mille dollars. Une
- * délégation peut seulement **abaisser** les limites de son profil, jamais les
- * relever — voir {@link tightenLimits}.
+ * Un profil ne porte **aucune limite** (décision de l'auteur, 2026-11-11) :
+ * ni étapes, ni budget, ni délai. Une tâche s'arrête sur son résultat, une
+ * annulation ou un refus du fournisseur ; un plafond de dépense se pose chez
+ * le fournisseur. Voir {@link MAX_OUTPUT_TOKENS} pour le seul réglage d'appel
+ * qui reste.
  *
  * Le profil `simulated` de la Slice 1 est conservé : il fait tourner la machine
  * à états, les approbations et l'attente bloquante sans appeler le moindre
@@ -35,98 +34,16 @@ export type AgentKind = (typeof AGENT_KINDS)[number]
 export const SIMULATED_AGENT_ID = 'simulated'
 
 /**
- * Limites d'exécution. Chacune arrête la tâche **avant** l'appel qui les
- * dépasserait, jamais après : une limite constatée après coup a déjà été payée.
- */
-export const agentLimitsSchema = z.object({
-  /** Itérations de boucle, donc appels modèle au maximum. Garde-fou contre une boucle d'outils sans fin. */
-  max_steps: z.number().int().min(1).max(100),
-  /** Budget en dollars. Dépassement = statut `budget_exceeded`, pas `failed` : rien n'a échoué. */
-  max_cost_usd: z.number().min(0).max(1000),
-  /** Durée totale de la tâche, approbations comprises. */
-  timeout_s: z.number().int().min(5).max(3600),
-  /** Jetons de sortie par appel, transmis au fournisseur. Borne le coût d'une seule réponse. */
-  max_output_tokens: z.number().int().min(64).max(200_000),
-  /** Appels d'outils par itération. Les fournisseurs savent en demander plusieurs à la fois. */
-  max_tool_calls_per_step: z.number().int().min(1).max(20),
-})
-export type AgentLimits = z.infer<typeof agentLimitsSchema>
-
-/**
- * Limites par défaut d'un Researcher.
+ * Jetons de sortie demandés au fournisseur à chaque appel de modèle.
  *
- * Volontairement basses. Une première exécution qui coûte deux centimes et
- * s'arrête trop tôt s'ajuste ; une première exécution qui coûte vingt dollars ne
- * se rattrape pas. L'utilisateur relève ce qu'il veut, en connaissance de cause.
+ * Ce n'est pas un plafond de tâche : l'API des fournisseurs veut une valeur,
+ * et celle-ci est large — le contenu d'un `write_file` est payé en jetons de
+ * sortie. **Midgaard ne borne plus une tâche** : ni étapes, ni budget, ni
+ * délai (décision de l'auteur, 2026-11-11). Une tâche s'arrête sur son
+ * résultat, sur une annulation, ou quand le fournisseur refuse — c'est chez
+ * lui que se règle un plafond de dépense. Le coût reste mesuré et affiché.
  */
-export const DEFAULT_RESEARCHER_LIMITS: AgentLimits = Object.freeze({
-  max_steps: 12,
-  max_cost_usd: 0.5,
-  timeout_s: 300,
-  max_output_tokens: 4096,
-  max_tool_calls_per_step: 5,
-})
-
-/**
- * Limites par défaut d'un Developer.
- *
- * Plus larges que celles du Researcher, pour trois raisons mesurables : écrire
- * du code demande de lire, modifier puis vérifier (plus d'étapes) ; le contenu
- * d'un `write_file` est payé en jetons de **sortie** (plafond par réponse plus
- * haut) ; et chaque `exec` peut attendre une approbation humaine jusqu'à dix
- * minutes, que le délai total compte. Elles restent un plafond que
- * l'utilisateur relève en connaissance de cause.
- */
-export const DEFAULT_DEVELOPER_LIMITS: AgentLimits = Object.freeze({
-  max_steps: 30,
-  max_cost_usd: 1,
-  timeout_s: 1800,
-  max_output_tokens: 8192,
-  max_tool_calls_per_step: 5,
-})
-
-/**
- * Limites par défaut d'un orchestrateur. Elles ne comptent que **ses propres**
- * appels : chaque sous-tâche a le budget de son profil (Slice 5, budgets
- * séparés).
- *
- *  - **le délai est le maximum permis** : l'orchestrateur attend ses
- *    sous-tâches, approbations humaines comprises, et un seul Developer a
- *    trente minutes ;
- *  - **étapes et appels par étape restent modestes**, parce que leur produit
- *    est le plafond théorique de l'arbre : un orchestrateur ne peut pas lancer
- *    plus de `max_steps × max_tool_calls_per_step` sous-tâches. 16 × 4 = 64,
- *    affiché comme tel au dashboard ;
- *  - **le budget est bas** : planifier, déléguer et synthétiser demande peu de
- *    jetons. Ce qui coûte, ce sont les sous-tâches, qui ont chacune le leur.
- */
-export const DEFAULT_ORCHESTRATOR_LIMITS: AgentLimits = Object.freeze({
-  max_steps: 16,
-  max_cost_usd: 0.5,
-  timeout_s: 3600,
-  max_output_tokens: 4096,
-  max_tool_calls_per_step: 4,
-})
-
-/**
- * Limites par défaut d'un Navigator (Slice 7).
- *
- *  - **des étapes** : une page se lit en plusieurs captures, un formulaire en
- *    plusieurs clics et saisies ;
- *  - **le budget du Researcher** : chaque étape porte une capture, environ un
- *    millier de jetons d'entrée relevés à l'étape 1, et la boucle n'en garde
- *    qu'une — le coût croît avec les étapes, pas avec leur carré ;
- *  - **trente minutes** : la durée maximale d'une session de navigateur, que
- *    l'échéance de la tâche borne de toute façon ;
- *  - **trois appels par étape** : agir, puis regarder ce que l'action a fait.
- */
-export const DEFAULT_NAVIGATOR_LIMITS: AgentLimits = Object.freeze({
-  max_steps: 30,
-  max_cost_usd: 0.5,
-  timeout_s: 1800,
-  max_output_tokens: 4096,
-  max_tool_calls_per_step: 3,
-})
+export const MAX_OUTPUT_TOKENS = 16_384
 
 /** Un profil d'agent, tel que le daemon le stocke et l'expose à Claude. */
 export const agentSchema = z.object({
@@ -143,7 +60,6 @@ export const agentSchema = z.object({
   system_prompt: z.string(),
   /** Outils autorisés, par nom. Tout outil absent de cette liste est refusé, approbation ou pas. */
   tools: z.array(z.string()),
-  limits: agentLimitsSchema,
   /** Un profil désactivé reste visible et consultable, mais refuse les délégations. */
   enabled: z.boolean(),
   /**
@@ -174,44 +90,9 @@ export const agentSchema = z.object({
 export type Agent = z.infer<typeof agentSchema>
 
 /**
- * Limites effectives d'une délégation : celles du profil, abaissées par celles
- * que Claude demande.
- *
- * **Jamais relevées.** C'est l'invariant du budget : le profil est le plafond,
- * l'appel ne peut que serrer. Une demande plus large n'est pas une erreur — elle
- * est simplement sans effet, et l'interface montre la limite réellement
- * appliquée.
- *
- * @param base    limites du profil
- * @param asked   limites demandées à la délégation ; chaque champ est facultatif
- * @returns les limites à appliquer
- *
- * @example
- * tightenLimits({ max_cost_usd: 0.5, ... }, { max_cost_usd: 5 }).max_cost_usd // 0.5
- * tightenLimits({ max_cost_usd: 0.5, ... }, { max_cost_usd: 0.1 }).max_cost_usd // 0.1
- */
-export function tightenLimits(base: AgentLimits, asked: Partial<AgentLimits> = {}): AgentLimits {
-  const floor = (a: number, b: number | undefined) => (b === undefined ? a : Math.min(a, b))
-  return {
-    max_steps: floor(base.max_steps, asked.max_steps),
-    max_cost_usd: floor(base.max_cost_usd, asked.max_cost_usd),
-    timeout_s: floor(base.timeout_s, asked.timeout_s),
-    max_output_tokens: floor(base.max_output_tokens, asked.max_output_tokens),
-    max_tool_calls_per_step: floor(base.max_tool_calls_per_step, asked.max_tool_calls_per_step),
-  }
-}
-
-/** Limites qu'une délégation peut demander. Toutes facultatives, toutes abaissantes. */
-export const requestedLimitsSchema = agentLimitsSchema.partial()
-export type RequestedLimits = z.infer<typeof requestedLimitsSchema>
-
-/**
  * Corps de `PATCH /api/agents/:id` : le fournisseur et le modèle d'un profil.
  *
- * **Rien d'autre ne se règle ici.** Les limites ont leur route à elles
- * (`PUT /api/agents/:id/limits`, Slice 8) : glissées dans ce corps, elles sont
- * ignorées, pour qu'un réglage de modèle ne relève jamais un budget en passant.
- * Les consignes et les outils appartiennent au harness, qui les réécrit à
+ * **Rien d'autre ne se règle ici.** Les consignes et les outils appartiennent au harness, qui les réécrit à
  * chaque démarrage.
  *
  * Changer de fournisseur sans dire de modèle remet le modèle à `null` (celui
@@ -234,35 +115,6 @@ export const updateAgentRequestSchema = z
     message: 'provider_id, model ou vision est requis',
   })
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>
-
-/**
- * Corps de `PUT /api/agents/:id/limits` : les limites d'un profil, réglées par
- * l'humain (Slice 8, décision de l'auteur du 2026-11-05).
- *
- * **Ce qui revient sur la Slice 5.** Les limites étaient hors de l'API : le
- * dashboard est servi à tout onglet qui passe l'enveloppe, et un budget qu'un
- * client pourrait relever ne protégerait personne. Mais personne ne pouvait
- * plus les régler du tout, et un premier appel Ghidra (jusqu'à 330 s) dépasse
- * le délai du Researcher. L'auteur a choisi une route, utilisable par la CLI et
- * le dashboard, avec ces garde-fous :
- *
- *  - une route **à part** du `PATCH` du modèle, qui continue d'ignorer des
- *    limites glissées dans son corps ;
- *  - les **bornes** de {@link agentLimitsSchema}, sur chaque valeur ;
- *  - une **confirmation** avant tout relèvement, côté CLI et dashboard ;
- *  - chaque changement **journalisé**, valeurs d'avant et d'après, et son
- *    auteur ; seules les tâches **suivantes** sont concernées — une tâche
- *    garde les limites de sa création.
- *
- * Partiel : seules les limites données changent. Un corps vide est refusé.
- */
-export const setAgentLimitsRequestSchema = agentLimitsSchema
-  .partial()
-  .extend({ by: z.string().min(1).max(64).default('api') })
-  .refine((b) => Object.keys(b).some((k) => k !== 'by' && b[k as keyof typeof b] !== undefined), {
-    message: 'au moins une limite est requise',
-  })
-export type SetAgentLimitsRequest = z.infer<typeof setAgentLimitsRequestSchema>
 
 /**
  * Types de base qu'un orchestrateur peut donner à un agent qu'il crée (Slice 8,
@@ -294,7 +146,6 @@ export const createdAgentSchema = z.object({
   /** Consigne de rôle, écrite par l'orchestrateur, **ajoutée** à celle du profil. */
   role: z.string(),
   mcp_servers: z.array(z.string()),
-  limits: agentLimitsSchema,
   created_at: z.iso.datetime(),
 })
 export type CreatedAgent = z.infer<typeof createdAgentSchema>

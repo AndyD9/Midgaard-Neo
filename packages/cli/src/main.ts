@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs'
 import { loadConfig } from '@midgaard/contracts'
 import { decide, doctor, start, status, stop } from './commands.ts'
-import { agentLimits, agents, pricing, providers } from './providers.ts'
+import { agents, pricing, providers } from './providers.ts'
 import { exec, workspaces } from './workspaces.ts'
 import { mcp } from './mcp.ts'
 import { desktop } from './desktop.ts'
@@ -31,8 +31,6 @@ ${bold('Commandes')}
 
 ${bold('Agents et fournisseurs')}
   agents                Profils d'exécution, et pourquoi certains sont désactivés
-  agents limits <profil> [--steps N] [--max-cost USD] [--timeout S] [--max-output-tokens N] [--tool-calls N] [--yes]
-                        Règle les limites d'un profil ; un relèvement s'annonce et se confirme
   providers             Fournisseurs de modèles déclarés
   providers add <id> --model <m> [--preset venice|openai|gemini|custom] [--base-url <u>]
                         Déclare un fournisseur ; la clé est saisie sans écho, jamais en argument
@@ -126,7 +124,7 @@ export async function run(argv: string[]): Promise<number> {
     case 'reject':
       return decide(config, 'reject', rest[0], rest.slice(1).join(' ') || undefined)
     case 'agents':
-      return rest[0] === 'limits' ? agentLimits(config, rest.slice(1)) : agents(config)
+      return agents(config)
     case 'providers':
       return providers(config, rest)
     case 'mcp':

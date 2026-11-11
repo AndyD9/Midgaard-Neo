@@ -23,12 +23,10 @@
  */
 import type {
   Agent,
-  AgentLimits,
   Approval,
   HarnessConfig,
   PricingTable,
   InputRequest,
-  RequestedLimits,
   Task,
   TaskEvent,
   ToolCall,
@@ -39,11 +37,9 @@ import {
   isTerminal,
   nextActionFor,
   operationHash,
-  tightenLimits,
 } from '@midgaard/contracts'
 import type { HarnessStore } from '@midgaard/persistence'
 import { randomBytes } from 'node:crypto'
-import { priceFor } from '@midgaard/providers'
 import type {
   CreateAgentRequest,
   CreatedAgentInfo,
@@ -150,29 +146,6 @@ export class TaskManager {
   }
 
   /**
-   * Le budget de l'arbre d'une tâche (Slice 8, décision prise avec l'auteur) :
-   * le plafond de coût de l'orchestrateur couvre **tout** son arbre — ses
-   * propres appels et ceux de chaque sous-tâche.
-   *
-   * Seuls les montants connus comptent : une tâche dont le coût est inconnu
-   * (`cost_source: unknown`) n'entre pas dans la somme. C'est pourquoi un agent
-   * créé ne peut pas recevoir un modèle sans tarif connu.
-   *
-   * @returns le plafond et ce qu'ont dépensé les **autres** tâches de l'arbre,
-   *          ou `null` pour une tâche qui n'appartient à aucun arbre
-   */
-  treeBudget(taskId: string): { limit: number; others: number } | null {
-    const task = this.store.getTask(taskId)
-    if (!task) return null
-    const root = task.parent_task_id ? this.store.getTask(task.parent_task_id) : task
-    if (!root || this.agentFor(root.agent_id)?.kind !== 'orchestrator') return null
-    const others = [root, ...this.store.childTasks(root.id)]
-      .filter((t) => t.id !== taskId && t.usage.cost_source !== 'unknown')
-      .reduce((sum, t) => sum + t.usage.cost_usd, 0)
-    return { limit: root.limits.max_cost_usd, others }
-  }
-
-  /**
    * Déclare un moteur pour un type de profil.
    *
    * Le moteur simulé est enregistré par le constructeur ; le daemon ajoute celui
@@ -203,7 +176,6 @@ export class TaskManager {
       },
       requestInput: (taskId, request, text, step, extra) => this.openInput(taskId, request, text, step, extra),
       delegationFor: (parentTaskId, redact) => this.delegationFor(parentTaskId, redact),
-      treeBudget: (taskId) => this.treeBudget(taskId),
       noteVision: (agentId, providerId, model, verdict) => {
         this.vision.set(agentId, { providerId, model, verdict })
       },
@@ -347,7 +319,6 @@ export class TaskManager {
     agentId: string
     context: string | null
     projectDir: string | null
-    requestedLimits?: RequestedLimits | undefined
     durationS: number
     needsApproval: boolean
     parentTaskId?: string | null | undefined
@@ -411,10 +382,6 @@ export class TaskManager {
       }
     }
 
-    // Les limites du profil sont un **plafond** : la délégation ne peut que les
-    // abaisser. Sans cette règle, Claude fixerait lui-même son budget, et le
-    // budget ne protégerait plus personne.
-    const limits = tightenLimits(agent.limits, input.requestedLimits ?? {})
     const { task } = this.bus.createTask({
       objective: input.objective,
       agentId: agent.id,
@@ -422,15 +389,12 @@ export class TaskManager {
       // Une tâche simulée ne lit rien : lui attribuer une racine laisserait
       // croire qu'elle y touche.
       projectDir: agent.kind === 'simulated' ? null : projectDir,
-      limits,
       durationS: input.durationS,
-      // `steps_total` est le dénominateur affiché par MCP, la CLI et le
-      // dashboard. L'exécutant simulé a ses propres étapes, comptées d'avance ;
-      // un agent réel, lui, est borné par `max_steps`. Leur donner à tous la
-      // constante du simulé affichait « 6/5 » pour une tâche plafonnée à 6, et
-      // « 2/5 » pour une plafonnée à 12 : le seul chiffre qu'on consulte pour
-      // savoir si une tâche a touché son plafond était faux.
-      stepsTotal: agent.kind === 'simulated' ? STEPS_TOTAL : limits.max_steps,
+      // `steps_total` est le dénominateur affiché par la CLI et le dashboard.
+      // L'exécutant simulé a ses étapes, comptées d'avance ; un agent réel
+      // n'en a pas — rien ne borne ses appels de modèle — et `0` le dit :
+      // l'affichage montre alors « étape 7 », sans dénominateur inventé.
+      stepsTotal: agent.kind === 'simulated' ? STEPS_TOTAL : 0,
       needsApproval: input.needsApproval,
       parentTaskId: input.parentTaskId ?? null,
       // Le mode est décidé ici, jamais reçu tel quel : un client demande une
@@ -444,7 +408,7 @@ export class TaskManager {
           : 'oneshot',
     })
     this.log(
-      `tâche ${short(task.id)} créée pour ${agent.id} (budget ${limits.max_cost_usd} $)` +
+      `tâche ${short(task.id)} créée pour ${agent.id}` +
         (input.parentTaskId ? `, sous-tâche de ${short(input.parentTaskId)}` : ''),
     )
     this.engines.get(agent.kind)!.start(task, agent)
@@ -768,7 +732,6 @@ export class TaskManager {
       description: a.description,
       enabled: a.enabled && !this.blindReason(a),
       disabled_reason: !a.enabled ? this.whyDisabledForModel(a) : this.blindReason(a)?.model ?? null,
-      limits: a.limits,
       mcp_servers: a.mcp_servers.map((id) => ({ id, name: this.store.getMcpServer(id)?.name ?? id })),
       ...(created ? { created: true } : {}),
     })
@@ -802,21 +765,12 @@ export class TaskManager {
               'wait for one with wait_for_task, or cancel one, before delegating again',
           }
         }
-        const tree = this.treeBudget(parentId)
-        if (tree) {
-          const parent = this.store.getTask(parentId)
-          const spent = tree.others + (parent && parent.usage.cost_source !== 'unknown' ? parent.usage.cost_usd : 0)
-          if (spent >= tree.limit) {
-            return { refused: `the budget of this task ($${tree.limit}) is spent across its subtasks: no new subtask can start` }
-          }
-        }
         const created = this.create({
           objective: redact(request.objective.trim()),
           agentId: request.agent_id,
           context: request.context === undefined ? null : redact(request.context),
           // Ignoré : `create` impose le dossier du parent à une sous-tâche.
           projectDir: null,
-          requestedLimits: request.limits,
           durationS: 20,
           needsApproval: false,
           parentTaskId: parentId,
@@ -943,10 +897,6 @@ export class TaskManager {
             : `the models of provider "${providerId}" are unknown: use its default model or the base profile's`,
         }
       }
-      const table = this.pricing()
-      if (!table || !priceFor(table, provider.preset, effective)) {
-        return { refused: `model "${effective}" has no known price: its cost could not be bounded by your task budget` }
-      }
     }
     // Les serveurs MCP : un sous-ensemble de ceux du profil de base.
     const servers = [...new Set(request.mcp_servers ?? [])]
@@ -958,15 +908,6 @@ export class TaskManager {
           `(it has: ${base.mcp_servers.join(', ') || 'none'})`,
       }
     }
-    // Les limites : au plus celles du profil de base.
-    const asked = request.limits ?? {}
-    const above = (Object.keys(asked) as (keyof AgentLimits)[]).filter((k) => asked[k] !== undefined && asked[k]! > base.limits[k])
-    if (above.length) {
-      return {
-        refused: `limits above the base profile: ${above.map((k) => `${k} ${asked[k]} > ${base.limits[k]}`).join(', ')}`,
-      }
-    }
-
     const name = redact(request.name.trim()).slice(0, 60)
     const created = this.store.createCreatedAgent({
       id: createdAgentId(name),
@@ -977,7 +918,6 @@ export class TaskManager {
       model,
       role: redact(request.role.trim()),
       mcp_servers: servers,
-      limits: tightenLimits(base.limits, asked),
     })
     // Écrit dans le journal de l'orchestrateur : l'humain voit dans l'arbre
     // qui a été créé, à partir de quoi, et avec quel rôle (décision 14).
@@ -1000,7 +940,6 @@ export class TaskManager {
       provider_id: created.provider_id,
       model: created.model,
       mcp_servers: created.mcp_servers,
-      limits: created.limits,
     }
   }
 
@@ -1237,7 +1176,6 @@ function subtaskState(task: Task): SubtaskState {
     result: task.result,
     error: task.error,
     usage: task.usage,
-    limits: task.limits,
   }
 }
 

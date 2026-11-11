@@ -14,7 +14,6 @@
  *  - L1 le Researcher est annoncé disponible, et il l'est réellement ;
  *  - L2 une vraie tâche aboutit à un résultat structuré, outils à l'appui ;
  *  - L3 **le coût affiché correspond au solde réellement débité** ;
- *  - L4 un budget volontairement bas arrête la tâche, sans appel de trop ;
  *  - L5 ce qui revient du web est marqué non fiable, avec ses sources.
  *
  * Le solde est relevé chez Venice **avant et après**, et comparé à ce que le
@@ -34,8 +33,6 @@ import { scenario, summarize, tempHome, type Outcome } from './helpers.ts'
 const PROVIDER_ID = process.env.MIDGAARD_LIVE_PROVIDER ?? 'venice'
 /** Modèle employé. Bon marché, appelle des outils, sait chercher sur le web. */
 const MODEL = process.env.MIDGAARD_LIVE_MODEL ?? 'deepseek-v4-flash-0731'
-/** Budget de chaque tâche réelle. Volontairement bas : un essai ne doit pas coûter cher. */
-const BUDGET_USD = Number(process.env.MIDGAARD_LIVE_BUDGET ?? 0.03)
 
 const outcomes: Outcome[] = []
 
@@ -69,18 +66,18 @@ const REPO = fileURLToPath(new URL('..', import.meta.url))
 
 /**
  * Délègue une tâche au Researcher par l'API du daemon, comme le fait le
- * dashboard. Les limites ne peuvent qu'abaisser celles du profil.
+ * dashboard. Aucune limite ne borne plus une tâche : ce que dépense cet essai
+ * n'est borné que par ses objectifs, courts, et par le solde du compte.
  *
  * @returns l'identifiant de la tâche, ou `null` avec le motif du refus
  */
 async function delegate(
   objective: string,
   context: string,
-  limits: { max_cost_usd: number; max_steps: number },
 ): Promise<{ id: string | null; refusal: string }> {
   const res = await daemonJson<Partial<TaskView> & { error?: string; reason?: string }>(rt, '/api/tasks', {
     method: 'POST',
-    body: JSON.stringify({ objective, agent_id: 'researcher', context, project_dir: REPO, limits }),
+    body: JSON.stringify({ objective, agent_id: 'researcher', context, project_dir: REPO }),
   })
   return { id: res.body.task?.id ?? null, refusal: `${res.status} ${res.body.error ?? ''} ${res.body.reason ?? ''}`.trim() }
 }
@@ -151,7 +148,7 @@ if (declared.status !== 200) {
 
 const soldeAvant = await balance()
 console.log(`Solde Venice avant l'essai : ${soldeAvant === null ? 'inconnu' : `${soldeAvant.toFixed(6)} $`}`)
-console.log(`Modèle : ${MODEL} · budget par tâche : ${BUDGET_USD} $`)
+console.log(`Modèle : ${MODEL} · aucune limite par tâche : le solde du compte est le seul plafond`)
 console.log()
 
 
@@ -181,7 +178,6 @@ await scenario(outcomes, 'L2 une vraie tâche aboutit à un résultat structuré
       'Answer from the repository files only. Cite the files you read.',
     'This is the Midgaard repository. The answer is stated in README.md and justified in docs/SLICE1.md. ' +
       'Do not search the web for this one.',
-    { max_cost_usd: BUDGET_USD, max_steps: 8 },
   )
   if (!start.id) return { verdict: 'FAIL', detail: `délégation refusée : ${start.refusal}` }
 
@@ -197,31 +193,11 @@ await scenario(outcomes, 'L2 une vraie tâche aboutit à un résultat structuré
   }
 })
 
-// --- L4 (avant L3 : il faut que toutes les dépenses soient faites) ----------
-await scenario(outcomes, 'L4 un budget volontairement bas arrête la tâche', async () => {
-  const start = await delegate(
-    'List every TypeScript file in this repository and summarise what each one does.',
-    'Deliberately broad: this task is meant to exhaust its budget.',
-    // Un budget au ras du premier appel : le second ne doit pas partir.
-    { max_cost_usd: 0.000001, max_steps: 8 },
-  )
-  if (!start.id) return { verdict: 'FAIL', detail: `délégation refusée : ${start.refusal}` }
-  const fin = (await runToEnd(start.id)).task
-  if (fin.status !== 'budget_exceeded') {
-    return { verdict: 'FAIL', detail: `statut ${fin.status} au lieu de budget_exceeded` }
-  }
-  return {
-    verdict: fin.usage.model_calls === 1 ? 'PASS' : 'FAIL',
-    detail: `${fin.usage.model_calls} appel(s) modèle avant l'arrêt — « ${fin.error} »`,
-  }
-})
-
 // --- L5 ---------------------------------------------------------------------
 await scenario(outcomes, 'L5 ce qui revient du web est marqué non fiable, avec ses sources', async () => {
   const start = await delegate(
     'Which Node.js release lines are currently in Active LTS? Answer in one sentence, with sources.',
     'You will need the web for this one; the repository does not contain the answer.',
-    { max_cost_usd: BUDGET_USD, max_steps: 6 },
   )
   if (!start.id) return { verdict: 'FAIL', detail: `délégation refusée : ${start.refusal}` }
   const fin = await runToEnd(start.id)
