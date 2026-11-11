@@ -231,6 +231,12 @@ retiré ; le flux porte ce qu'ils montraient.
   tâche qui travaille, et le motif s'affiche à la place. Entrée envoie,
   Maj+Entrée va à la ligne, « conclure » demande de finir. Elle dit qu'une
   conversation ne survit pas au daemon. Tout le texte est rendu comme du texte.
+  **Sous la tâche terminée d'un orchestrateur, elle sert à rebondir**
+  (`canContinue`) : le message ouvre une **suite** — une nouvelle tâche, que
+  le daemon crée avec le relevé de la première et ses agents créés — et la vue
+  y passe. L'invite dit que c'est une nouvelle tâche et que ce que
+  l'orchestrateur avait lu n'est plus en mémoire. Les détails de la suite
+  portent « Suite de : », qui ramène à la première.
 - **« annuler »**, dans l'en-tête du flux, annule la racine — donc l'arbre.
 - **Détails** (`TaskInspector`), à la demande : ce qui ne tient pas en
   lignes — consommation, sous-tâches et total de l'arbre, diff
@@ -240,7 +246,8 @@ retiré ; le flux porte ce qu'ils montraient.
 Le formulaire « nouvelle tâche » propose « Conversation », cochée par défaut,
 pour un orchestrateur seulement.
 
-Prouvé par `test:ui` (D4 : approuver sous le flux ; D12 : une conversation ;
+Prouvé par `test:ui` (D4 : approuver sous le flux ; D12 : une conversation,
+puis le rebond sur la tâche finie ;
 D13 : sortie **pendant** la commande, puis la commande entière ; D22 : le
 flux par défaut, détails et retour, rien de l'atelier ne reste) et par
 `tests/unit/dashboard-workbench.test.ts`. Le diff d'une tâche Developer se lit

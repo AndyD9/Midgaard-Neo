@@ -10,7 +10,11 @@
  *    le web. React l'échappe, rien n'en est interprété — ni Markdown, ni HTML ;
  *  - **une conversation ne survit pas au daemon**, et l'invite le dit tant
  *    qu'elle est en cours : la règle `interrupted` est un invariant, pas un
- *    défaut à cacher.
+ *    défaut à cacher ;
+ *  - **une tâche terminée ne repart pas, mais on peut rebondir dessus** : sous
+ *    la tâche finie d'un orchestrateur, la saisie ouvre une **suite** — une
+ *    nouvelle tâche, qui reçoit le relevé de la première et ses agents créés.
+ *    L'invite le dit : ce que l'orchestrateur avait lu n'est plus en mémoire.
  *
  * Une image lue par un agent est relue **sur le disque**. Aucune image n'est
  * gardée par le daemon : si le fichier a changé depuis, son empreinte diffère
@@ -19,8 +23,8 @@
  */
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import type { Task } from '@midgaard/contracts'
-import { ApiError, fetchTaskImage, postMessage } from '@/lib/api'
-import { composerState } from '@/lib/thread'
+import { ApiError, continueTask, fetchTaskImage, postMessage } from '@/lib/api'
+import { canContinue, composerState } from '@/lib/thread'
 
 /** Statuts où une conversation est encore en cours. */
 const ACTIVE = ['queued', 'preparing', 'running', 'waiting_approval', 'waiting_input']
@@ -67,18 +71,38 @@ export function ReadImage({ taskId, path, sha256Prefix }: { taskId: string; path
  * attend votre réponse. Entrée envoie, Maj+Entrée va à la ligne ; « conclure »
  * demande à l'orchestrateur de finir.
  *
- * @param root    racine de l'arbre affiché : c'est à elle qu'on écrit
- * @param onError remonte le motif d'un refus du daemon au bandeau
+ * Sous une tâche **terminée** d'orchestrateur, la même saisie sert à rebondir :
+ * le message ouvre la tâche qui la prolonge, et la vue y passe.
+ *
+ * @param root        racine de l'arbre affiché : c'est à elle qu'on écrit
+ * @param onError     remonte le motif d'un refus du daemon au bandeau
+ * @param onContinued reçoit l'identifiant de la suite créée, pour l'afficher
  */
-export function Composer({ root, onError }: { root: Task; onError: (error: string | null) => void }) {
+export function Composer({
+  root,
+  onError,
+  onContinued,
+}: {
+  root: Task
+  onError: (error: string | null) => void
+  onContinued: (taskId: string) => void
+}) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const state = composerState(root)
+  const continuing = !state.open && canContinue(root)
 
   async function send(conclude: boolean): Promise<void> {
     if (sending || (!conclude && !text.trim())) return
     setSending(true)
     try {
+      if (continuing) {
+        const view = await continueTask(root.id, text.trim())
+        setText('')
+        onError(null)
+        onContinued(view.task.id)
+        return
+      }
       await postMessage(root.id, text.trim(), conclude)
       setText('')
       onError(null)
@@ -97,6 +121,43 @@ export function Composer({ root, onError }: { root: Task; onError: (error: strin
     }
   }
 
+  if (continuing) {
+    return (
+      <div className="border-t border-border px-3 py-2 font-mono text-[12px]">
+        <div className="flex items-start gap-2">
+          <span className="pt-0.5 text-accent" aria-hidden>
+            ›
+          </span>
+          <textarea
+            className="min-h-[1.5em] w-full resize-none bg-transparent leading-[1.5] text-ink outline-none placeholder:text-muted/60"
+            rows={Math.min(8, Math.max(1, text.split('\n').length))}
+            placeholder="rebondir sur cette tâche — Entrée ouvre la suite, Maj+Entrée va à la ligne"
+            aria-label="Votre message pour continuer cette tâche"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKeyDown}
+            disabled={sending}
+            data-testid="continue-input"
+          />
+          <button
+            type="button"
+            className="shrink-0 text-accent hover:text-ink disabled:opacity-40"
+            onClick={() => void send(false)}
+            disabled={sending || !text.trim()}
+            data-testid="continue-send"
+          >
+            [continuer]
+          </button>
+        </div>
+        {/* Dit ce qui se passe vraiment : une nouvelle tâche, pas celle-ci qui repart. */}
+        <p className="mt-1 text-[11px] text-muted/70" data-testid="chat-closed">
+          Cette tâche est terminée. Votre message ouvre une suite : une nouvelle tâche de l'orchestrateur, qui reçoit le
+          résultat et le fil de celle-ci, et retrouve les agents qu'elle a créés. Ce qu'il avait lu n'est plus en mémoire : il
+          le relira au besoin.
+        </p>
+      </div>
+    )
+  }
   if (!state.open) {
     return (
       <p className="border-t border-border px-3 py-2 font-mono text-xs text-muted" data-testid="chat-closed">

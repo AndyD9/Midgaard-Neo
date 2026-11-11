@@ -56,6 +56,7 @@ import { SimulatedEngine, STEPS_TOTAL } from './engines/simulated.ts'
 import type { EngineContext, TaskEngine, VisionVerdict } from './engines/types.ts'
 import { navigatorBlindError } from './engines/agent.ts'
 import { resolveCreatedAgent } from './agents.ts'
+import { continuationRecord } from './continuation.ts'
 
 /** Délai maximal d'un constat de vision attendu par une requête : le catalogue ne doit pas bloquer l'API. */
 const VISION_PROBE_WAIT_MS = 5_000
@@ -329,6 +330,12 @@ export class TaskManager {
      * son parent indéfiniment.
      */
     conversation?: boolean | undefined
+    /**
+     * Tâche terminée que celle-ci prolonge. Posé par {@link continueTask} et
+     * par lui seul — jamais par une route qui le lirait d'un client —, après
+     * vérification : la nouvelle tâche hérite des agents créés de celle-là.
+     */
+    continuesTaskId?: string | null | undefined
   }): { task: Task } | Refusal {
     const agent = this.agentFor(input.agentId)
     // Un agent créé ne sert qu'aux sous-tâches de l'orchestrateur qui l'a créé
@@ -397,6 +404,7 @@ export class TaskManager {
       stepsTotal: agent.kind === 'simulated' ? STEPS_TOTAL : 0,
       needsApproval: input.needsApproval,
       parentTaskId: input.parentTaskId ?? null,
+      continuesTaskId: input.continuesTaskId ?? null,
       // Le mode est décidé ici, jamais reçu tel quel : un client demande une
       // conversation, le daemon dit si elle en est une. Un Developer délégué
       // par un orchestrateur propose son travail au lieu de le livrer (Slice 6) ;
@@ -409,10 +417,105 @@ export class TaskManager {
     })
     this.log(
       `tâche ${short(task.id)} créée pour ${agent.id}` +
-        (input.parentTaskId ? `, sous-tâche de ${short(input.parentTaskId)}` : ''),
+        (input.parentTaskId ? `, sous-tâche de ${short(input.parentTaskId)}` : '') +
+        (input.continuesTaskId ? `, suite de ${short(input.continuesTaskId)}` : ''),
     )
+    // Avant le départ du moteur : l'orchestrateur doit trouver ses exécutants
+    // dès son premier `list_agents`.
+    if (input.continuesTaskId) this.inheritCreatedAgents(input.continuesTaskId, task.id)
     this.engines.get(agent.kind)!.start(task, agent)
     return { task }
+  }
+
+  /**
+   * Rebondit sur une tâche **terminée** d'un orchestrateur : crée la tâche qui
+   * la prolonge, en conversation, avec le message de l'utilisateur pour
+   * ouverture.
+   *
+   * La première tâche n'est pas rouverte — un statut final est sans sortie, et
+   * sa conversation avec le modèle n'a vécu qu'en mémoire. La suite est une
+   * tâche neuve, de premier niveau, qui reçoit :
+   *  - le **profil** et le **dossier** de la première, jamais ceux d'un client ;
+   *  - en contexte, le **relevé** de ce qu'elle a laissé en base
+   *    ({@link continuationRecord}), où ce qu'un modèle a écrit est encadré ;
+   *  - les **agents qu'elle avait créés**, recopiés dans le nouvel arbre.
+   *
+   * Refusé pour une tâche encore active (on lui écrit, ou on attend), pour une
+   * sous-tâche (c'est son orchestrateur qu'on prolonge) et pour tout profil
+   * qui n'est pas un orchestrateur : lui seul converse.
+   *
+   * @param by `dashboard` ou `cli` — jamais un modèle : aucun outil n'atteint cette route
+   * @returns la tâche créée, ou un refus explicite
+   */
+  continueTask(sourceId: string, input: { text: string; by: string }): { task: Task } | Refusal {
+    const source = this.store.getTask(sourceId)
+    if (!source) return { error: 'task_not_found', status: 404 }
+    if (!isTerminal(source.status)) {
+      return { error: 'task_still_active', status: 409, detail: { status: source.status } }
+    }
+    if (source.parent_task_id !== null || this.agentFor(source.agent_id)?.kind !== 'orchestrator') {
+      return {
+        error: 'continuation_unsupported',
+        status: 409,
+        detail: { reason: 'seule une tâche d\'orchestrateur lancée par vous peut être prolongée' },
+      }
+    }
+    const text = input.text.trim()
+    if (!text) return { error: 'empty_message', status: 400 }
+    const created = this.create({
+      objective: text,
+      agentId: source.agent_id,
+      context: continuationRecord(this.store, source),
+      projectDir: source.project_dir,
+      durationS: source.duration_s,
+      needsApproval: false,
+      conversation: true,
+      continuesTaskId: source.id,
+    })
+    if (!('error' in created)) this.log(`tâche ${short(created.task.id)} : suite demandée par ${input.by}`)
+    return created
+  }
+
+  /**
+   * Recopie dans une suite les agents que la tâche prolongée avait créés.
+   *
+   * Un agent créé n'existe que dans l'arbre de sa tâche : la suite est un
+   * autre arbre, il lui faut donc les siens — nouveaux identifiants, même nom,
+   * même base, même rôle. Chaque copie est **rejugée contre le profil de base
+   * d'aujourd'hui**, parce qu'une copie est une création : un agent dont la
+   * base ou le fournisseur a disparu n'est pas recopié, et un serveur MCP
+   * détaché de la base depuis ne suit pas. Chaque copie s'écrit au journal de
+   * la suite (`agent.created`, `inherited_from`), pour que l'humain voie dans
+   * le nouvel arbre qui est là et d'où il vient.
+   */
+  private inheritCreatedAgents(fromTaskId: string, toTaskId: string): void {
+    for (const old of this.store.createdAgentsOf(fromTaskId).slice(0, MAX_CREATED_AGENTS)) {
+      const base = this.store.getAgent(old.base_agent_id)
+      if (!base || !this.store.getProvider(old.provider_id)) continue
+      const copy = this.store.createCreatedAgent({
+        id: createdAgentId(old.name),
+        task_id: toTaskId,
+        name: old.name,
+        base_agent_id: old.base_agent_id,
+        provider_id: old.provider_id,
+        model: old.model,
+        role: old.role,
+        mcp_servers: old.mcp_servers.filter((s) => base.mcp_servers.includes(s)),
+      })
+      this.bus.record(toTaskId, null, {
+        type: 'agent.created',
+        payload: {
+          agent_id: copy.id,
+          name: copy.name,
+          base_agent_id: copy.base_agent_id,
+          provider_id: copy.provider_id,
+          model: copy.model,
+          mcp_servers: copy.mcp_servers,
+          role: copy.role,
+          inherited_from: old.id,
+        },
+      })
+    }
   }
 
   /** Pourquoi un profil est désactivé, en une phrase destinée à l'utilisateur. */

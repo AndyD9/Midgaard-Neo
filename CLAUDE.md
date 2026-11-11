@@ -340,6 +340,14 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   `review` pour un Developer délégué par un orchestrateur, `oneshot` sinon.
   **`awaiting_input` est une propriété du statut** `waiting_input` : exigé à
   l'entrée, refusé ailleurs, effacé à la sortie par le dépôt.
+- **Une tâche terminée ne repart jamais : rebondir crée une suite**
+  (`POST /api/tasks/:id/continue`, `continues_task_id`, posé par le daemon
+  seul). La suite reçoit le relevé de la base (`daemon/src/continuation.ts`),
+  où **ce qu'un modèle a écrit est encadré** — seule la demande de l'humain
+  ne l'est pas — et son résultat est donc `untrusted`. Seule une tâche
+  d'orchestrateur terminée, sans parent, se prolonge ; ses agents créés sont
+  **recopiés** dans le nouvel arbre, jamais partagés entre deux arbres. La
+  consigne dit au modèle qu'il ne se souvient de rien d'autre.
 - **Un agent créé par un orchestrateur ne dépasse jamais son profil de base
   et n'existe que dans son arbre** : outils et consigne du profil, le rôle
   ajouté après ; serveurs MCP et modèle refusés avec motif au-delà.

@@ -37,7 +37,9 @@
  *    lien de l'enfant vers son parent ;
  *  - D12 une conversation dans le flux : la réplique de
  *    l'orchestrateur s'affiche, la saisie ne s'ouvre que lorsqu'il attend, le
- *    message part, et la conversation se ferme sur son résultat ;
+ *    message part, et la conversation se ferme sur son résultat ; puis le
+ *    rebond : la saisie sous la tâche finie ouvre une suite, la vue y passe,
+ *    et la première tâche ne change pas ;
  *  - D13 le flux suit un Developer : il montre la sortie d'une
  *    commande **pendant** qu'elle tourne, puis la commande entière ;
  *  - D14 le dashboard montre ce que voit un Navigator : la vision se
@@ -668,7 +670,37 @@ await scenario(outcomes, 'D12 une conversation avec l’orchestrateur, dans le f
     }
     const closed = (await page.getByTestId('chat-closed').textContent({ timeout: UI_TIMEOUT })) ?? ''
     if (!/terminée/.test(closed)) return { verdict: 'FAIL', detail: `saisie encore ouverte après la fin : « ${closed} »` }
-    return { verdict: 'PASS', detail: 'réplique vue, message envoyé de la saisie, résultat au fil, saisie refermée' }
+    if ((await page.getByTestId('chat-input').count()) > 0) return { verdict: 'FAIL', detail: 'la saisie de réponse est restée après la fin' }
+
+    // Rebondir : sous la tâche finie, la saisie ouvre une suite — une autre
+    // tâche, vers laquelle la vue passe. Le faux fournisseur choisit son
+    // scénario par la première étiquette du message d'ouverture, qui cite
+    // désormais aussi la demande d'origine : on retire l'ancien.
+    provider.scripts.delete('[D12]')
+    provider.scripts.set('[suite]', [[{ tool: 'submit_result', args: { summary: 'suite faite' } }]])
+    await page.getByTestId('continue-input').fill('[suite] et le LICENSE ?')
+    await page.getByTestId('continue-send').click()
+    try {
+      await page.waitForURL((url) => url.hash.startsWith('#/tasks/') && url.hash !== `#/tasks/${id}`, { timeout: UI_TIMEOUT })
+      await chat.locator('[data-type="tâche"]').getByText('[suite] et le LICENSE ?').waitFor({ timeout: UI_TIMEOUT })
+      await chat.locator('[data-type="terminée"]').getByText('suite faite').waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: `la suite n'est pas ouverte ou n'a pas conclu (${page.url()})` }
+    }
+    const nextId = new URL(page.url()).hash.replace('#/tasks/', '')
+    const next = await taskNow(nextId)
+    if (next.continues_task_id !== id || next.mode !== 'chat') {
+      return { verdict: 'FAIL', detail: `la tâche ouverte n'est pas la suite : ${JSON.stringify({ c: next.continues_task_id, m: next.mode })}` }
+    }
+    if ((await taskNow(id)).status !== 'completed') return { verdict: 'FAIL', detail: 'la première tâche a changé de statut' }
+    await page.getByTestId('tab-details').click({ timeout: UI_TIMEOUT })
+    const link = (await page.getByTestId('continues-link').textContent({ timeout: UI_TIMEOUT })) ?? ''
+    await page.getByTestId('tab-flux').click({ timeout: UI_TIMEOUT })
+    if (!link.includes(id.slice(0, 8))) return { verdict: 'FAIL', detail: `« Suite de » ne désigne pas la première tâche : « ${link} »` }
+    return {
+      verdict: 'PASS',
+      detail: 'réplique vue, message envoyé de la saisie, résultat au fil, saisie refermée ; rebond : suite ouverte, conclue, liée à la première',
+    }
   } finally {
     provider.server.close()
     dispose()

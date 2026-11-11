@@ -63,6 +63,9 @@ conversation — page, sortie de commande, résultat d'une sous-tâche, recherch
 web native —, cité ou non. Avant, seules les citations le marquaient : un
 Researcher qui lisait une page sans la citer, ou un orchestrateur qui recopiait
 le résultat d'un Researcher, rendaient un résultat présenté comme fiable.
+La **suite d'une tâche terminée** (`LoopInput.continuation`) commence
+avec un contenu encadré — le relevé de la tâche qu'elle prolonge, dans son
+premier message : son résultat est `untrusted` même si elle n'appelle aucun outil.
 Conséquence voulue : un Developer qui a lancé une commande rend un résultat
 non fiable.
 

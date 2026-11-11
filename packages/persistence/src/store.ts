@@ -76,6 +76,7 @@ interface TaskRow {
   usage_json: string
   project_dir: string | null
   parent_task_id: string | null
+  continues_task_id: string | null
   mode: string
   awaiting_input: string | null
 }
@@ -162,6 +163,7 @@ function toTask(row: TaskRow): Task {
     usage: JSON.parse(row.usage_json) as Usage,
     project_dir: row.project_dir,
     parent_task_id: row.parent_task_id,
+    continues_task_id: row.continues_task_id,
     mode: row.mode as TaskMode,
     awaiting_input: row.awaiting_input as InputRequest | null,
   }
@@ -367,6 +369,8 @@ export class HarnessStore {
     stepsTotal: number
     needsApproval: boolean
     parentTaskId?: string | null
+    /** Tâche terminée que celle-ci prolonge ; posée par le daemon seul, après vérification. */
+    continuesTaskId?: string | null
     /** `oneshot` par défaut. Choisi par le daemon, jamais par le client (Slice 6). */
     mode?: TaskMode
   }): Recorded {
@@ -377,9 +381,9 @@ export class HarnessStore {
         .prepare(
           `INSERT INTO tasks (id, objective, status, step, steps_total, needs_approval, approval_seq,
                               duration_s, created_at, updated_at, agent_id, context, limits_json, usage_json,
-                              project_dir, parent_task_id, mode)
+                              project_dir, parent_task_id, mode, continues_task_id)
            VALUES (:id, :objective, 'queued', 0, :steps_total, :needs_approval, 0, :duration_s, :now, :now,
-                   :agent_id, :context, :limits, :usage, :project_dir, :parent_task_id, :mode)`,
+                   :agent_id, :context, :limits, :usage, :project_dir, :parent_task_id, :mode, :continues_task_id)`,
         )
         .run({
           id,
@@ -392,6 +396,7 @@ export class HarnessStore {
           context: input.context,
           project_dir: input.projectDir,
           parent_task_id: input.parentTaskId ?? null,
+          continues_task_id: input.continuesTaskId ?? null,
           mode: input.mode ?? 'oneshot',
           limits: NO_LIMITS,
           usage: JSON.stringify(emptyUsage()),
@@ -407,6 +412,8 @@ export class HarnessStore {
             objective: input.objective,
             agent_id: input.agentId,
             ...(input.parentTaskId ? { parent_task_id: input.parentTaskId } : {}),
+            // De même pour une suite : sa timeline dit quelle tâche elle prolonge.
+            ...(input.continuesTaskId ? { continues_task_id: input.continuesTaskId } : {}),
             // Le mode aussi, mais seulement quand il n'est pas celui de toujours :
             // un task.created d'avant la Slice 6 et un d'après se lisent pareil.
             ...(input.mode && input.mode !== 'oneshot' ? { mode: input.mode } : {}),

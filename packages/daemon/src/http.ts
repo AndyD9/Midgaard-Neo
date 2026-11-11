@@ -25,6 +25,7 @@
  * | GET  | `/api/tasks/:id/events` | Timeline complète | 200, 404 |
  * | POST | `/api/tasks/:id/cancel` | Annulation | 200, 404, 409 |
  * | POST | `/api/tasks/:id/messages` | Message de l'utilisateur à une conversation qui l'attend | 200, 400, 404, 409 |
+ * | POST | `/api/tasks/:id/continue` | Rebondit sur une tâche terminée d'un orchestrateur : crée la tâche qui la prolonge | 201, 400, 404, 409 |
  * | GET  | `/api/tasks/:id/tools` | Appels d'outils d'une tâche | 200, 404 |
  * | GET  | `/api/tasks/:id/workspace` | Worktree et diff, calculé à la demande | 200, 404 |
  * | GET  | `/api/tasks/:id/files/image?path=` | Une image de la tâche, en octets, type lu dans les octets | 200, 400, 404, 409, 413, 415 |
@@ -69,6 +70,7 @@ import {
   execPrefixRefusal,
   formatExecRule,
   mcpAllowRequestSchema,
+  continueTaskRequestSchema,
   postMessageRequestSchema,
   removeWorkspaceRequestSchema,
   setAgentMcpRequestSchema,
@@ -569,6 +571,16 @@ async function handleTasks(
     const outcome = deps.tasks.postMessage(id, parsed.data)
     if ('error' in outcome) return send(res, outcome.status, { error: outcome.error, ...outcome.detail })
     return send(res, 200, outcome)
+  }
+
+  if (method === 'POST' && action === 'continue') {
+    // Le client n'envoie que son message : profil, dossier et contexte sont
+    // repris de la tâche prolongée par le daemon, qui pose seul le lien.
+    const parsed = continueTaskRequestSchema.safeParse(await readJson(req))
+    if (!parsed.success) return send(res, 400, { error: 'invalid_request', detail: parsed.error.issues })
+    const created = deps.tasks.continueTask(id, parsed.data)
+    if ('error' in created) return send(res, created.status, { error: created.error, ...created.detail })
+    return send(res, 201, deps.tasks.view(created.task))
   }
 
   return send(res, 405, { error: 'method_not_allowed' })

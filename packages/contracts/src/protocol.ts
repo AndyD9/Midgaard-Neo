@@ -111,9 +111,13 @@ import { execAllowEntrySchema, workspaceDiffSchema, workspaceSchema } from './wo
  *  - 23 : **plus de limites** (Midgaard Neo). Ni un profil, ni une tâche, ni un
  *        agent créé ne portent de `limits` ; `POST /api/tasks` n'en lit plus,
  *        et `PUT /api/agents/:id/limits` n'existe plus. Un daemon de protocole
- *        22 arrêterait encore une tâche sur ses étapes, son budget ou son délai.
+ *        22 arrêterait encore une tâche sur ses étapes, son budget ou son délai ;
+ *  - 24 : la **suite d'une tâche terminée**. Une tâche porte
+ *        `continues_task_id`, que le dashboard valide, et
+ *        `POST /api/tasks/:id/continue` la crée. Un daemon de protocole 23
+ *        rendrait des tâches sans le champ et répondrait 405 à la route.
  */
-export const PROTOCOL_VERSION = 23
+export const PROTOCOL_VERSION = 24
 
 /** Contenu du fichier de découverte du daemon. **Secret** : il donne le contrôle du daemon. */
 export const runtimeInfoSchema = z.object({
@@ -229,6 +233,21 @@ export const postMessageRequestSchema = z.object({
   by: z.string().min(1).max(32).default('dashboard'),
 })
 export type PostMessageRequest = z.infer<typeof postMessageRequestSchema>
+
+/**
+ * Corps de `POST /api/tasks/:id/continue` : le message par lequel
+ * l'utilisateur rebondit sur une tâche **terminée** d'un orchestrateur.
+ *
+ * La réponse est la vue d'une **nouvelle** tâche, en conversation, dont
+ * `continues_task_id` désigne la première. Le client n'envoie ni contexte, ni
+ * dossier, ni profil : le daemon les reprend de la tâche prolongée.
+ */
+export const continueTaskRequestSchema = z.object({
+  text: z.string().trim().min(1).max(20_000),
+  /** Qui écrit : `dashboard` ou `cli`. Jamais un modèle — aucun outil n'atteint cette route. */
+  by: z.string().min(1).max(32).default('dashboard'),
+})
+export type ContinueTaskRequest = z.infer<typeof continueTaskRequestSchema>
 
 /** Réponse portant une tâche et la consigne associée. */
 export const taskViewSchema = z.object({

@@ -31,3 +31,24 @@ export function composerState(root: Task): { open: true } | { open: false; reaso
   }
   return { open: false, reason: 'La conversation est terminée.' }
 }
+
+/** Statuts finaux d'une tâche : elle ne repart plus. */
+const ENDED = ['completed', 'failed', 'cancelled', 'timed_out', 'budget_exceeded', 'interrupted']
+
+/**
+ * Identifiant du profil orchestrateur livré. Le dashboard n'importe de
+ * `@midgaard/contracts` que des types, et une tâche ne porte pas le type de
+ * son profil : c'est par cet identifiant qu'on le reconnaît ici. Le daemon
+ * rejuge de toute façon (`continuation_unsupported`).
+ */
+const ORCHESTRATOR_ID = 'orchestrator'
+
+/**
+ * Vrai si l'utilisateur peut **rebondir** sur cette tâche : elle est terminée,
+ * de premier niveau, et c'est un orchestrateur qui l'a menée. Le daemon ne la
+ * rouvre pas — il crée la tâche qui la prolonge (`POST /api/tasks/:id/continue`),
+ * avec le relevé de celle-ci en contexte et ses agents créés.
+ */
+export function canContinue(root: Task): boolean {
+  return ENDED.includes(root.status) && root.parent_task_id === null && root.agent_id === ORCHESTRATOR_ID
+}

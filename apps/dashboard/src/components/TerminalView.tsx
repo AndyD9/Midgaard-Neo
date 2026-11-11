@@ -49,6 +49,7 @@ function statusTone(status: string): StreamTone {
  * @param events    timelines chargées, par tâche
  * @param approvals demandes en attente ; seules celles de l'arbre sont montrées
  * @param onError   remonte un refus du daemon au bandeau
+ * @param onSelect  affiche une autre tâche : la suite qu'on vient d'ouvrir
  */
 export function TerminalView({
   root,
@@ -56,12 +57,14 @@ export function TerminalView({
   events,
   approvals,
   onError,
+  onSelect,
 }: {
   root: Task
   tasks: Task[]
   events: Record<string, TaskEvent[] | undefined>
   approvals: Approval[]
   onError: (error: string | null) => void
+  onSelect: (taskId: string) => void
 }) {
   const children = useMemo(
     () => tasks.filter((t) => t.parent_task_id === root.id).sort((a, b) => a.created_at.localeCompare(b.created_at)),
@@ -154,7 +157,7 @@ export function TerminalView({
         </div>
       )}
 
-      <Composer root={root} onError={onError} />
+      <Composer key={root.id} root={root} onError={onError} onContinued={onSelect} />
     </div>
   )
 }

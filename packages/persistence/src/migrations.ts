@@ -488,6 +488,19 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX findings_tree_idx ON findings(tree_task_id);
     `,
   },
+  {
+    version: 20,
+    label: 'Suite d\'une tâche terminée',
+    sql: `
+      -- La tâche terminée que celle-ci prolonge ; NULL pour toutes les autres,
+      -- donc pour toutes celles d'avant. Posée par le daemon seul.
+      --
+      -- ON DELETE SET NULL, et non CASCADE comme parent_task_id : une suite
+      -- est une tâche de premier niveau à part entière, qui garde son journal
+      -- et son résultat même si celle qu'elle prolongeait disparaissait.
+      ALTER TABLE tasks ADD COLUMN continues_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL;
+    `,
+  },
 ]
 
 // Pas de table 'usage' : la consommation d'une tâche vit dans 'tasks.usage_json',

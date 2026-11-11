@@ -214,6 +214,20 @@ export const taskSchema = z.object({
    * l'annulation en cascade d'un parent emporterait des tâches qu'il n'a pas créées.
    */
   parent_task_id: z.uuid().nullable(),
+  /**
+   * Tâche **terminée** dont celle-ci est la suite ; `null` pour une tâche qui
+   * ne prolonge rien.
+   *
+   * Une tâche finie ne repart pas (ses statuts finaux sont sans sortie, et sa
+   * conversation avec le modèle n'a vécu qu'en mémoire) : rebondir sur elle
+   * crée donc une **nouvelle** tâche, qui reçoit en contexte ce que le journal
+   * a gardé de la première et hérite des agents qu'elle avait créés.
+   *
+   * **Posé par le daemon seul**, comme `parent_task_id` : le champ est absent
+   * de `POST /api/tasks`, et seule `POST /api/tasks/:id/continue` le produit,
+   * après avoir vérifié la tâche prolongée.
+   */
+  continues_task_id: z.uuid().nullable(),
   /** Manière dont la tâche converse ; posée par le daemon seul, comme `parent_task_id`. */
   mode: taskModeSchema,
   /**

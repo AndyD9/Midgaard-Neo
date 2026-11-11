@@ -123,6 +123,12 @@ pour comprendre de quoi il s'agit. L'orchestrateur délègue, la conversation se
 le chat, et chaque commande ou saisie sensible attend ton approbation — dans le
 dashboard, ou par `npm run harness -- approve`.
 
+Une tâche d'orchestrateur terminée ne repart pas, mais tu peux **rebondir**
+dessus : la saisie sous son flux ouvre une suite — une nouvelle tâche, qui
+reçoit le résultat et le fil de la première et retrouve les agents qu'elle
+avait créés. Ce que l'orchestrateur avait lu n'est plus en mémoire : il le
+relit au besoin, et ces appels se paient.
+
 Un Developer travaille dans un worktree sous `~/.midgaard/worktrees` : **rien
 n'arrive dans ton dépôt** tant que tu n'as pas mergé toi-même la branche
 `midgaard/…`. `npm run harness -- workspaces clean` retire ensuite les

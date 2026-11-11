@@ -246,6 +246,13 @@ export interface LoopInput {
   /** Vrai si la tâche a un parent à qui poser une question (`ask_parent`). */
   delegated?: boolean | undefined
   /**
+   * Vrai si la tâche prolonge une tâche terminée : `context` est le relevé de
+   * celle-ci, dont les parties écrites par un modèle sont **déjà encadrées**
+   * par le daemon. La conversation commence donc avec un contenu non fiable,
+   * et le résultat final est `untrusted` quoi qu'il arrive ensuite.
+   */
+  continuation?: boolean | undefined
+  /**
    * Outils construits pour **cette** tâche, en plus de ceux du profil : ceux de
    * ses serveurs MCP (Slice 8). Ils sont autorisés parce que le daemon les a
    * construits à partir des serveurs du profil, pas parce que le modèle les
@@ -325,6 +332,7 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
     workspace: input.workspace,
     mode,
     delegated: input.delegated ?? false,
+    continuation: input.continuation ?? false,
   })
 
   /** Attend un message de l'utilisateur ou du parent. */
@@ -341,8 +349,9 @@ export async function runAgent(input: LoopInput): Promise<LoopOutcome> {
   }
 
   // Vrai dès qu'un contenu non fiable est entré dans la conversation : il
-  // décide du drapeau `untrusted` du résultat final, cité ou non.
-  let tainted = false
+  // décide du drapeau `untrusted` du résultat final, cité ou non. Une suite
+  // commence avec : le relevé de la tâche prolongée est dans son premier message.
+  let tainted = input.continuation === true
 
   while (true) {
     // Le seul arrêt que la boucle décide d'elle-même : l'annulation, regardée

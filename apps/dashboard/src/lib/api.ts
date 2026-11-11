@@ -277,6 +277,20 @@ export function postMessage(taskId: string, text: string, conclude = false): Pro
 }
 
 /**
+ * Rebondit sur une tâche terminée d'un orchestrateur : le daemon crée la tâche
+ * qui la prolonge, en conversation, et rend sa vue. Profil, dossier et
+ * contexte sont repris de la première par le daemon ; on n'envoie que le message.
+ *
+ * @throws {ApiError} si la tâche est encore active ou ne se prolonge pas
+ */
+export function continueTask(taskId: string, text: string): Promise<TaskView> {
+  return api(`/api/tasks/${taskId}/continue`, {
+    method: 'POST',
+    body: JSON.stringify({ text, by: 'dashboard' }),
+  })
+}
+
+/**
  * Appelle une route qui rend des octets — une image —, authentifiée comme les
  * autres. Une balise `<img src>` ne sait pas porter le jeton : le dashboard
  * lit les octets ici et en fait une URL `blob:` locale.

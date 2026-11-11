@@ -236,7 +236,7 @@ export function App() {
                     />
                   </div>
                 ) : (
-                  <TerminalView root={root} tasks={state.tasks} events={state.events} approvals={state.approvals} onError={reportError} />
+                  <TerminalView root={root} tasks={state.tasks} events={state.events} approvals={state.approvals} onError={reportError} onSelect={select} />
                 )}
               </section>
             </>

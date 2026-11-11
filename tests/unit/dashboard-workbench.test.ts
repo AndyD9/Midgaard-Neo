@@ -24,7 +24,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { emptyUsage, type Task, type TaskEvent } from '@midgaard/contracts'
-import { composerState } from '../../apps/dashboard/src/lib/thread.ts'
+import { canContinue, composerState } from '../../apps/dashboard/src/lib/thread.ts'
 import { buildStream, plain } from '../../apps/dashboard/src/lib/stream.ts'
 import { browserSummary, closedReasonText } from '../../apps/dashboard/src/lib/browser.ts'
 import { appendEvent, mergeTimeline, unwatchTimeline, watchTimeline, type Timelines } from '../../apps/dashboard/src/lib/timeline.ts'
@@ -38,7 +38,7 @@ function task(id: string, over: Partial<Task> = {}): Task {
   const at = '2026-11-03T10:00:00.000Z'
   return {
     id, objective: 'objectif', status: 'running', step: 0, steps_total: 1, agent_id: 'orchestrator', context: null,
-    project_dir: '/p', parent_task_id: null, mode: 'chat', awaiting_input: null,
+    project_dir: '/p', parent_task_id: null, continues_task_id: null, mode: 'chat', awaiting_input: null,
     usage: emptyUsage(), needs_approval: false, approval_seq: 0, duration_s: 1, created_at: at, updated_at: at,
     started_at: null, ended_at: null, result: null, error: null, ...over,
   }
@@ -118,6 +118,23 @@ describe('flux terminal : la conversation', () => {
       const state = composerState(task(ROOT, over))
       assert.equal(state.open, false, JSON.stringify(over))
     }
+  })
+
+  it('ne propose de rebondir que sur une tâche terminée d’orchestrateur, de premier niveau', () => {
+    const orchestrator = { agent_id: 'orchestrator' }
+    for (const status of ['completed', 'failed', 'cancelled', 'timed_out', 'interrupted'] as const) {
+      assert.equal(canContinue(task(ROOT, { ...orchestrator, status })), true, status)
+      assert.equal(canContinue(task(ROOT, { ...orchestrator, status, mode: 'oneshot' })), true, `${status}, en une fois`)
+    }
+    for (const status of ['running', 'waiting_input', 'waiting_approval', 'cancel_requested'] as const) {
+      assert.equal(canContinue(task(ROOT, { ...orchestrator, status })), false, status)
+    }
+    assert.equal(canContinue(task(ROOT, { agent_id: 'researcher', status: 'completed' })), false, 'un autre profil')
+    assert.equal(
+      canContinue(task(ROOT, { ...orchestrator, status: 'completed', parent_task_id: '00000000-0000-4000-8000-0000000000aa' })),
+      false,
+      'une sous-tâche',
+    )
   })
 })
 

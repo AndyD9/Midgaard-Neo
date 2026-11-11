@@ -436,6 +436,7 @@ export class AgentEngine implements TaskEngine {
           tools,
         },
         delegated: task.parent_task_id !== null,
+        continuation: task.continues_task_id !== null,
         extraTools,
         objective: task.objective,
         context: task.context,

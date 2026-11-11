@@ -103,6 +103,19 @@ export function TaskInspector({
               </button>
             </p>
           )}
+          {task.continues_task_id && (
+            <p className="flex gap-2" data-testid="continues-link">
+              <span className="text-muted">Suite de :</span>
+              <button
+                type="button"
+                className="min-w-0 truncate font-mono text-xs text-accent hover:underline"
+                onClick={() => onSelect(task.continues_task_id!)}
+              >
+                {tasks.find((t) => t.id === task.continues_task_id)?.agent_id ?? 'tâche'} ·{' '}
+                {task.continues_task_id.slice(0, 8)}
+              </button>
+            </p>
+          )}
           <Field label="Progression" value={task.steps_total > 0 ? `étape ${task.step} sur ${task.steps_total}` : `étape ${task.step}`} />
           <Field label="Créée" value={formatDateTime(task.created_at)} />
           <Field label="Terminée" value={task.ended_at ? formatDateTime(task.ended_at) : '—'} />

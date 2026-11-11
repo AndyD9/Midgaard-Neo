@@ -21,6 +21,7 @@ desktop.
 | `mcp-servers.ts` | Serveurs MCP déclarés (Slice 8) : coffre d'abord, test qui lit le vrai catalogue, outils cochés avec leur empreinte |
 | `mcp-sessions.ts` | Les serveurs MCP des tâches : lancés au départ, fermés à la fin, tous fermés à l'arrêt |
 | `browsers.ts` | Les sessions de navigateur des tâches (Slice 7) : une au plus par tâche, dernière capture en mémoire |
+| `continuation.ts` | Le relevé d'une tâche terminée, remis à la tâche qui la prolonge (`POST /api/tasks/:id/continue`) |
 | `web.ts` | Le web lu par navigateur (`search_web`, `read_web_page`) : un Chromium par tâche, ouvert à la demande, fermé avec elle |
 | `files.ts` | Une image d'une tâche, en lecture seule, pour le fil du dashboard (Slice 7) |
 | `project-dir.ts` | `checkProjectDir` : le dossier de projet d'une tâche, vérifié avant de la créer |
@@ -136,6 +137,38 @@ attend dans `awaiting_input`. Le moteur l'ouvre par
 
 Prouvé par `tests/unit/conversation.test.ts`, sur le vrai moteur et un faux
 fournisseur, en HTTP compris.
+
+### Rebondir sur une tâche terminée
+
+Une tâche finie **ne repart pas** : ses statuts finaux sont sans sortie, et la
+conversation de l'agent avec son modèle n'a vécu qu'en mémoire du moteur.
+`POST /api/tasks/:id/continue` (`{ text }`) crée donc la **tâche qui la
+prolonge** (`TaskManager.continueTask`) : neuve, de premier niveau, en mode
+`chat`, avec le message pour ouverture. Ce que le daemon garantit :
+
+- **Seule une tâche terminée d'orchestrateur, sans parent, se prolonge.**
+  Refus sinon, sans rien créer : `task_still_active` (on lui écrit, ou on
+  attend) et `continuation_unsupported`.
+- **Le lien est posé par lui** (`continues_task_id`), comme `parent_task_id` :
+  `POST /api/tasks` ne le lit pas. Profil et dossier sont ceux de la première
+  tâche, jamais ceux d'un client.
+- **La suite reçoit le relevé de ce que la base a gardé** (`continuation.ts`) :
+  la demande, les répliques, le résultat soumis, les sous-tâches et leurs
+  branches — pour toute la chaîne des suites, la plus ancienne d'abord, les
+  plus anciennes omises **en le disant** au-delà de 60 000 caractères. Ce
+  qu'un modèle y a écrit est **encadré en `<untrusted_data>`** avec un nonce ;
+  seule la demande tapée par l'humain reste hors du cadre. Le résultat d'une
+  suite est donc toujours `untrusted`.
+- **Ce que l'agent avait lu n'y est pas** — fichiers, pages, sorties de
+  commandes : la consigne le lui dit, et qu'il doit relire avant de s'y fier.
+- **Les agents créés suivent**, recopiés dans le nouvel arbre sous un nouvel
+  identifiant (`agent.created`, `inherited_from`), rejugés contre le profil de
+  base d'aujourd'hui : une base ou un fournisseur disparu n'est pas recopié,
+  un serveur MCP détaché de la base ne suit pas.
+- **La première tâche ne change pas** : ni statut, ni résultat, ni journal.
+
+Prouvé par `tests/unit/continuation.test.ts` (ce que le modèle a réellement
+lu, la base, HTTP) et par `test:ui` (D12).
 
 La même attente porte **l'échange entre un orchestrateur et ses sous-tâches** :
 

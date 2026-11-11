@@ -19,7 +19,7 @@ function task(id: string, over: Partial<Task> = {}): Task {
   const at = new Date(Date.UTC(2026, 10, 1, 0, 0, clock++)).toISOString()
   return {
     id, objective: id, status: 'running', step: 0, steps_total: 1, agent_id: 'researcher', context: null,
-    project_dir: null, parent_task_id: null, mode: 'oneshot', awaiting_input: null, usage: emptyUsage(),
+    project_dir: null, parent_task_id: null, continues_task_id: null, mode: 'oneshot', awaiting_input: null, usage: emptyUsage(),
     needs_approval: false, approval_seq: 0, duration_s: 1, created_at: at, updated_at: at, started_at: null,
     ended_at: null, result: null, error: null, ...over,
   }
