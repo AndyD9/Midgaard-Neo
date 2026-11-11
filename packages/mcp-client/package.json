@@ -1,0 +1,12 @@
+{
+  "name": "@midgaard/mcp-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Client MCP du daemon : un serveur stdio déclaré par l'humain, lancé sous la garde, dont aucun processus ne survit",
+  "engines": { "node": ">=24.0.0" },
+  "exports": {
+    ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" }
+  },
+  "dependencies": { "@midgaard/tools": "*", "@modelcontextprotocol/sdk": "^1.32.2" }
+}

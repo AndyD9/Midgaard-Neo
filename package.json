@@ -1,0 +1,49 @@
+{
+  "name": "midgaard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Harness local d'agents : un orchestrateur délègue à des agents exécutants, observés et soumis à approbation humaine",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AndyD9/Midgaard.git"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tests"
+  ],
+  "scripts": {
+    "harness": "node --conditions=midgaard-dev packages/cli/src/main.ts",
+    "doctor": "node --conditions=midgaard-dev packages/cli/src/main.ts doctor",
+    "desktop": "node --conditions=midgaard-dev packages/cli/src/main.ts desktop",
+    "desktop:build": "cargo build --release --manifest-path apps/desktop/src-tauri/Cargo.toml",
+    "test:desktop": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml",
+    "daemon": "node --conditions=midgaard-dev packages/daemon/src/main.ts",
+    "dashboard:dev": "npm run dev --workspace @midgaard/dashboard",
+    "typecheck": "tsc -b && tsc -p apps/dashboard --noEmit",
+    "build": "tsc -b && npm run build --workspace @midgaard/dashboard",
+    "clean": "tsc -b --clean && rm -rf apps/dashboard/dist",
+    "test": "npm run test:unit && npm run test:lock && npm run test:restart && npm run test:developer && npm run test:orchestrator && npm run test:security",
+    "test:unit": "node --conditions=midgaard-dev --test tests/unit/*.test.ts",
+    "test:vault": "node --conditions=midgaard-dev --test tests/unit/secrets.test.ts",
+    "test:worktrees": "node --conditions=midgaard-dev --test tests/unit/workspace.test.ts tests/unit/write-tools.test.ts tests/unit/exec.test.ts tests/unit/exec-output.test.ts tests/unit/task-files.test.ts tests/unit/dashboard-patch.test.ts",
+    "test:lock": "node --conditions=midgaard-dev tests/single-instance.ts",
+    "test:restart": "node --conditions=midgaard-dev tests/restart.ts",
+    "test:developer": "node --conditions=midgaard-dev tests/developer.ts",
+    "test:security": "node --conditions=midgaard-dev tests/security.ts",
+    "test:ui": "node --conditions=midgaard-dev tests/dashboard.ts",
+    "test:orchestrator": "node --conditions=midgaard-dev tests/orchestrator.ts",
+    "test:live": "node --conditions=midgaard-dev tests/live-agent.ts",
+    "test:live-vision": "node --conditions=midgaard-dev tests/live-vision.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "playwright": "^1.64.1",
+    "typescript": "^7.0.2"
+  }
+}

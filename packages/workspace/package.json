@@ -1,0 +1,12 @@
+{
+  "name": "@midgaard/workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Worktrees Git des agents écrivants : création, commit, diff, retrait",
+  "engines": { "node": ">=24.0.0" },
+  "exports": {
+    ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" }
+  },
+  "dependencies": { "@midgaard/contracts": "*" }
+}

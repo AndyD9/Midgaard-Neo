@@ -1,0 +1,17 @@
+{
+  "name": "@midgaard/agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Boucle d'exécution des agents : budgets, limites, approbations, résultat structuré",
+  "engines": { "node": ">=24.0.0" },
+  "exports": {
+    ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" }
+  },
+  "dependencies": {
+    "@midgaard/contracts": "*",
+    "@midgaard/providers": "*",
+    "@midgaard/tools": "*",
+    "zod": "^4.6.7"
+  }
+}

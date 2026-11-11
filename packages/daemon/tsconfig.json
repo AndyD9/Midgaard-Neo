@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
+  "include": ["src"],
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../persistence" },
+    { "path": "../secrets" },
+    { "path": "../providers" },
+    { "path": "../workspace" },
+    { "path": "../tools" },
+    { "path": "../browser" },
+    { "path": "../mcp-client" },
+    { "path": "../agent-runtime" }
+  ]
+}

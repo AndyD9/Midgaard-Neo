@@ -1,0 +1,26 @@
+{
+  "$comment": [
+    "`rootDir` remonte d'un cran et `include` nomme un fichier du dashboard : c'est le seul",
+    "moyen de type-vérifier un test qui porte sur ses fonctions pures. Le dashboard a sa propre",
+    "configuration (cible navigateur, JSX) et n'est pas dans la solution `tsc -b`, donc on ne peut",
+    "pas le référencer comme un paquet. Seules des fonctions sans dépendance au DOM traversent",
+    "ainsi la frontière ; le rendu, lui, attend Playwright en Slice 3."
+  ],
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "..", "outDir": "dist", "noEmit": false },
+  "include": ["**/*.ts", "../apps/dashboard/src/lib/utils.ts", "../apps/dashboard/src/lib/patch.ts", "../apps/dashboard/src/lib/tree.ts", "../apps/dashboard/src/lib/agents.ts", "../apps/dashboard/src/lib/thread.ts", "../apps/dashboard/src/lib/terminal.ts", "../apps/dashboard/src/lib/stream.ts", "../apps/dashboard/src/lib/browser.ts", "../apps/dashboard/src/lib/timeline.ts", "../apps/dashboard/src/lib/bundle.ts", "../apps/dashboard/src/lib/mcp.ts", "../apps/dashboard/src/lib/providers.ts"],
+  "exclude": ["dist"],
+  "references": [
+    { "path": "../packages/contracts" },
+    { "path": "../packages/secrets" },
+    { "path": "../packages/providers" },
+    { "path": "../packages/tools" },
+    { "path": "../packages/browser" },
+    { "path": "../packages/mcp-client" },
+    { "path": "../packages/workspace" },
+    { "path": "../packages/agent-runtime" },
+    { "path": "../packages/persistence" },
+    { "path": "../packages/daemon" },
+    { "path": "../packages/cli" }
+  ]
+}

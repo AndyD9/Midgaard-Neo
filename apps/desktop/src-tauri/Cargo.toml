@@ -1,0 +1,32 @@
+# Coque desktop de Midgaard (Slice 6, étape 7) : une fenêtre Tauri 2 sur le
+# dashboard du daemon. Elle ne contient aucune logique du harness — le daemon
+# reste la seule source de vérité, et le même dashboard s'ouvre aussi dans un
+# navigateur. Construite localement depuis le clone, jamais distribuée
+# (décision du 2026-11-01) : ni signature ni notarisation.
+[package]
+name = "midgaard-desktop"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Fenêtre desktop du dashboard Midgaard"
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+# Aucun plugin : la page chargée est le dashboard du daemon, servi en HTTP
+# local, et elle ne reçoit aucune capacité Tauri (voir tauri.conf.json).
+tauri = { version = "2.12.5", features = [] }
+serde_json = "1.0.154"
+
+[features]
+# Le mode « production » de Tauri : le dossier `ui/` est embarqué, et rien
+# n'attend un serveur de développement. La CLI de Tauri l'active d'elle-même ;
+# ici on construit par `cargo`, d'où le défaut.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

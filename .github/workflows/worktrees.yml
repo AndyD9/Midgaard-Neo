@@ -1,0 +1,64 @@
+# Worktrees, écriture et exec sur les trois plateformes.
+#
+# Raison d'être : la Slice 3 s'est engagée, dès son étape 1, à ne pas se dire
+# terminée tant que ces suites n'auraient tourné que sur le Mac qui les a
+# écrites. Le paquet `workspace`, les outils d'écriture et `exec` sont pleins
+# de branches propres à une plateforme — `os.devNull`, `taskkill`, le repli sans
+# `O_NOFOLLOW`, `PATHEXT` —, et le coffre a montré ce qu'en vaut la relecture :
+# cinq pannes réelles, invisibles depuis macOS, trouvées seulement en CI.
+#
+# Ces suites parlent à de vrais dépôts Git jetables, lancent de vrais processus
+# et posent de vrais liens symboliques : c'est la machine qui les éprouve. Un
+# cas qui n'a pas de sens sur une plateforme (un script `sh` lancé comme
+# programme, sous Windows) saute **en le disant** ; aucun ne passe au vert sans
+# avoir tourné.
+name: Worktrees
+
+on:
+  push:
+    branches: [main]
+    # Les `.md` des paquets sont exclus : une relecture de documentation ne
+    # mobilise pas trois machines (même piège que celui constaté sur le coffre).
+    paths:
+      - 'packages/workspace/**'
+      - '!packages/workspace/**.md'
+      - 'packages/tools/**'
+      - '!packages/tools/**.md'
+      - 'packages/contracts/src/**'
+      - 'apps/dashboard/src/lib/patch.ts'
+      - 'tests/unit/workspace.test.ts'
+      - 'tests/unit/write-tools.test.ts'
+      - 'tests/unit/exec.test.ts'
+      - 'tests/unit/dashboard-patch.test.ts'
+      # Slice 6 : la sortie d'`exec` en direct et les fichiers d'une tâche,
+      # éprouvés par la même suite — leurs tubes et leurs chemins dépendent de
+      # la plateforme.
+      - 'packages/agent-runtime/src/**'
+      - 'packages/daemon/src/**'
+      - 'tests/unit/exec-output.test.ts'
+      - 'tests/unit/task-files.test.ts'
+      - 'tests/fake-provider.ts'
+      - '.github/workflows/worktrees.yml'
+      - 'package-lock.json'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  worktrees:
+    name: ${{ matrix.os }}
+    strategy:
+      # Toutes les plateformes vont au bout : une panne Windows ne doit pas
+      # cacher ce que Linux aurait dit.
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      # La version de Git fait partie du constat : `git worktree remove` exige
+      # la 2.17, et un comportement peut changer d'une version à l'autre.
+      - run: git --version
+      - run: npm run test:worktrees

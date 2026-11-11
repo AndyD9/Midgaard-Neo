@@ -1,0 +1,39 @@
+{
+  "name": "@midgaard/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Daemon du harness : API HTTP loopback, WebSocket, bus d'événements, machine à états",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    ".": {
+      "midgaard-dev": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./main": {
+      "midgaard-dev": "./src/main.ts",
+      "default": "./dist/main.js"
+    },
+    "./installation": {
+      "midgaard-dev": "./src/installation.ts",
+      "default": "./dist/installation.js"
+    }
+  },
+  "dependencies": {
+    "@midgaard/agent-runtime": "*",
+    "@midgaard/browser": "*",
+    "@midgaard/contracts": "*",
+    "@midgaard/mcp-client": "*",
+    "@midgaard/persistence": "*",
+    "@midgaard/providers": "*",
+    "@midgaard/secrets": "*",
+    "@midgaard/tools": "*",
+    "@midgaard/workspace": "*",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  }
+}

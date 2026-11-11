@@ -1,0 +1,21 @@
+{
+  "name": "@midgaard/tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Suites de vérification : unitaires, instance unique, redémarrage, Developer, orchestrateur, sécurité",
+  "dependencies": {
+    "@midgaard/agent-runtime": "*",
+    "@midgaard/browser": "*",
+    "@midgaard/cli": "*",
+    "@midgaard/contracts": "*",
+    "@midgaard/daemon": "*",
+    "@midgaard/mcp-client": "*",
+    "@midgaard/persistence": "*",
+    "@midgaard/providers": "*",
+    "@midgaard/secrets": "*",
+    "@midgaard/tools": "*",
+    "@midgaard/workspace": "*",
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  }
+}

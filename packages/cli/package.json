@@ -1,0 +1,31 @@
+{
+  "name": "@midgaard/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ligne de commande harness : start, stop, status, doctor, approve",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    ".": {
+      "midgaard-dev": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./main": {
+      "midgaard-dev": "./src/main.ts",
+      "default": "./dist/main.js"
+    }
+  },
+  "dependencies": {
+    "@midgaard/contracts": "*",
+    "@midgaard/daemon": "*",
+    "@midgaard/persistence": "*",
+    "@midgaard/providers": "*",
+    "@midgaard/secrets": "*",
+    "@midgaard/workspace": "*"
+  },
+  "bin": {
+    "harness": "./dist/main.js"
+  }
+}

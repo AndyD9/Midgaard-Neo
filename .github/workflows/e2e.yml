@@ -1,0 +1,87 @@
+# Le daemon de bout en bout, le dashboard et la CLI, sur les trois plateformes.
+# Depuis la Slice 5, l'orchestrateur aussi (`test:orchestrator`).
+#
+# Raison d'être (Slice 4, étape 5) : jusqu'ici, seules les suites unitaires de
+# `workspace`, de l'écriture, d'`exec` et du coffre tournaient sous Windows et
+# Linux. Le daemon réel — verrou d'instance unique, redémarrage, reprise
+# WebSocket, Developer, sécurité, attente longue —, le dashboard dans un vrai
+# navigateur et la CLI n'avaient tourné que sous macOS. Ce sont pourtant eux
+# qu'un tiers installera, et eux qui envoient des signaux, tuent des groupes de
+# processus et posent des verrous : exactement ce qui diffère d'un système à
+# l'autre. Le coffre a montré ce que vaut la relecture seule — cinq pannes
+# réelles, invisibles depuis macOS.
+#
+# Chaque suite est une étape à part, et toutes s'exécutent même si une
+# précédente échoue : une panne de `test:lock` sous Windows ne doit pas cacher
+# ce que `test:security` aurait dit. Une suite qui saute un cas le dit dans sa
+# sortie (`CONSTAT`, « SANS … ») ; aucune ne passe au vert sans avoir tourné.
+name: Bout en bout
+
+on:
+  push:
+    branches: [main]
+    # La documentation ne mobilise pas trois machines pendant un quart d'heure.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - run: git --version
+      # Le dashboard compilé est ce que le daemon sert : sans lui, `test:ui`
+      # n'éprouverait qu'une page « non compilé ».
+      - id: build
+        run: npm run build
+      - name: Navigateur de Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: test:unit
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run test:unit
+      - name: test:lock
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run test:lock
+      - name: test:restart
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run test:restart
+      - name: test:developer
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run test:developer
+      # Slice 5 : délégation parallèle, approbation d'un enfant, cascade
+      # d'annulation et `SIGKILL` — la mort du daemon et les groupes de
+      # processus sont précisément ce qui diffère d'un système à l'autre.
+      - name: test:orchestrator
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run test:orchestrator
+      - name: test:security
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run test:security
+      - name: test:ui
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run test:ui
+      # La CLI telle qu'un tiers la lance : diagnostic d'une installation neuve,
+      # puis état. Le dossier runtime est jetable, et le coffre est le fichier
+      # pour ne rien déposer dans le trousseau du poste.
+      - name: CLI (doctor, status)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: bash
+        env:
+          MIDGAARD_HOME: ${{ runner.temp }}/midgaard-cli
+          MIDGAARD_VAULT: file
+        run: |
+          npm run doctor
+          npm run harness -- status

@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
+  "include": ["src"],
+  "references": [{ "path": "../contracts" }, { "path": "../daemon" }, { "path": "../persistence" }, { "path": "../providers" }, { "path": "../secrets" }, { "path": "../workspace" }]
+}

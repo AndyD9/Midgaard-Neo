@@ -1,0 +1,12 @@
+{
+  "name": "@midgaard/browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Navigateur isolé des agents : Chromium jetable, réseau gardé, aucun processus survivant",
+  "engines": { "node": ">=24.0.0" },
+  "exports": {
+    ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" }
+  },
+  "dependencies": { "@midgaard/contracts": "*", "@midgaard/tools": "*", "playwright": "1.64.1" }
+}

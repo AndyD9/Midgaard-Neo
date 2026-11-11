@@ -1,0 +1,12 @@
+{
+  "name": "@midgaard/persistence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistance SQLite (node:sqlite), migrations versionnées et dépôts",
+  "engines": { "node": ">=24.0.0" },
+  "exports": {
+    ".": { "midgaard-dev": "./src/index.ts", "default": "./dist/index.js" }
+  },
+  "dependencies": { "@midgaard/contracts": "*" }
+}

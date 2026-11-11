@@ -1,0 +1,54 @@
+# La coque desktop (Slice 6, étape 7), compilée et testée sur les trois
+# plateformes.
+#
+# Raison d'être : la coque n'a été lancée que sous macOS, et Tauri s'appuie sur
+# un moteur web différent par système — WebKit (macOS), WebView2 (Windows),
+# WebKitGTK (Linux). La compiler partout prouve qu'elle se construit depuis un
+# clone sur chacun ; ses tests prouvent la seule logique qui protège : la
+# fenêtre n'ouvre qu'une adresse de la boucle locale.
+#
+# Ce que ce passage ne prouve **pas** : qu'une fenêtre s'ouvre. Aucun poste de
+# CI n'a d'écran ; l'ouverture réelle est constatée à la main, et dite comme
+# telle dans docs/SLICE6.md.
+name: Coque desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - '!apps/desktop/**.md'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      # Les bibliothèques de WebKitGTK et ce que Tauri lie sous Linux.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev build-essential
+      - run: cargo --version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: desktop-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+      # `--locked` : le Cargo.lock du dépôt fait foi, comme le package-lock pour npm.
+      - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
