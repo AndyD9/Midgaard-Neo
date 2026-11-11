@@ -91,15 +91,46 @@ export function portFallbackNote(config: Pick<HarnessConfig, 'port' | 'portIsExp
   )
 }
 
-/** Arrête le daemon. Ne le démarre pas pour l'arrêter. */
-export async function stop(config: HarnessConfig): Promise<number> {
+/** Code de sortie de `stop --if-idle` quand le daemon travaille : il n'a pas été arrêté. */
+export const EXIT_BUSY = 3
+
+/**
+ * Arrête le daemon. Ne le démarre pas pour l'arrêter.
+ *
+ * Avec `ifIdle`, l'arrêt est **refusé tant qu'une tâche est active**, et c'est
+ * le daemon qui le décide (`if_idle`), sans fenêtre entre la lecture de son
+ * compteur et son arrêt. La commande attend alors que le processus ait
+ * disparu : c'est ce qu'emploie l'application avant de se mettre à jour, et
+ * un installeur ne remplace pas un Node encore en marche.
+ *
+ * @returns `0` si plus aucun daemon ne tourne, {@link EXIT_BUSY} s'il
+ *          travaille (avec `ifIdle`), `1` s'il est injoignable
+ */
+export async function stop(config: HarnessConfig, options: { ifIdle?: boolean } = {}): Promise<number> {
   const rt = readRuntime(config.runtimeFile)
   if (!rt) {
     console.log('Aucun daemon enregistré : rien à arrêter.')
     return 0
   }
   try {
-    await daemonJson(rt, '/api/shutdown', { method: 'POST', signal: AbortSignal.timeout(2000) })
+    const answer = await daemonJson<{ active?: number }>(rt, '/api/shutdown', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(options.ifIdle ? { if_idle: true } : {}),
+      signal: AbortSignal.timeout(2000),
+    })
+    if (options.ifIdle && answer.status === 409) {
+      console.log(`Le daemon travaille (${answer.body.active ?? '?'} tâche(s) active(s)) : il n'est pas arrêté.`)
+      return EXIT_BUSY
+    }
+    if (options.ifIdle) {
+      const deadline = Date.now() + 10_000
+      while (pidAlive(rt.pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50))
+      if (pidAlive(rt.pid)) {
+        console.log(red(`Le daemon (pid ${rt.pid}) ne s'est pas arrêté.`))
+        return 1
+      }
+    }
     console.log(`${green('✔')} daemon arrêté (pid ${rt.pid})`)
     return 0
   } catch {

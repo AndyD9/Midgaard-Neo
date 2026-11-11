@@ -22,7 +22,7 @@ const USAGE = `${bold('harness')} — harness local d'agents
 
 ${bold('Commandes')}
   start                 Démarre le daemon s'il dort, et affiche où le joindre
-  stop                  Arrête le daemon
+  stop [--if-idle]      Arrête le daemon ; --if-idle : seulement s'il n'a aucune tâche active (code 3 sinon)
   status [--limit N]    État du daemon et tâches récentes (lit la base même daemon arrêté)
   doctor                Diagnostic de l'installation
   desktop               Ouvre la fenêtre desktop du dashboard (construite par npm run desktop:build)
@@ -109,7 +109,7 @@ export async function run(argv: string[]): Promise<number> {
     case 'start':
       return start(config)
     case 'stop':
-      return stop(config)
+      return stop(config, { ifIdle: rest.includes('--if-idle') })
     case 'status': {
       const at = rest.indexOf('--limit')
       const limit = at >= 0 ? Number(rest[at + 1]) : 20

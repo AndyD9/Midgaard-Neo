@@ -112,6 +112,77 @@ Le navigateur des agents (Chromium de Playwright) **n'est pas embarqué** : le
 message d'un Navigator qui ne le trouve pas donne la commande d'installation
 en chemins absolus — le Node embarqué et le `cli.js` du Playwright embarqué.
 
+### Mises à jour et releases
+
+L'application autonome **se met à jour depuis les releases GitHub** du dépôt
+(`src-tauri/src/update.rs`). Au lancement, hors du fil de la fenêtre, elle lit
+`latest.json` sur la dernière release publiée ; si une version plus récente
+existe, un dialogue natif la propose avec ses notes — **rien ne s'installe sans
+« Installer »**. Ce qui est garanti :
+
+- **Un paquet n'est installé que s'il est signé par la clé du dépôt, pour la
+  version annoncée.** La vérification est celle de `tauri-plugin-updater`
+  (minisign) contre la clé publique de `tauri.conf.json` ;
+  `requireSignedVersion` refuse un paquet authentique mais plus ancien qu'un
+  manifeste falsifié présenterait comme nouveau. Le manifeste, lui, n'est pas
+  signé : ses notes sont montrées comme du texte, sans caractère de contrôle.
+- **Jamais pendant une tâche.** Avant d'installer, la coque lance
+  `harness stop --if-idle` : le daemon décide lui-même s'il est oisif. S'il
+  travaille, la mise à jour est **reportée** et l'application le dit ; elle
+  sera proposée au lancement suivant.
+- **La page n'y a aucune part** : le dialogue est ouvert par la coque, et le
+  dashboard ne reçoit toujours aucune capacité Tauri.
+- **Deux formes, deux installations.** Le bundle (`.app`, installeur NSIS,
+  `.deb`) est remplacé par le plugin. L'exécutable unique télécharge le
+  nouvel exécutable sous sa propre cible (`<os>-<arch>-portable`), le vérifie
+  de la même façon, puis **se remplace lui-même** : l'ancien est mis de côté
+  (`<nom>.old`, retiré au lancement suivant) et remis en place si le nouveau
+  ne peut pas l'être.
+- **Seule l'application autonome se met à jour** : la coque d'un clone suit
+  son clone. `MIDGAARD_NO_UPDATE=1` désactive la vérification. Une
+  vérification qui échoue (pas de réseau, aucune release) ne dit rien.
+
+Après la mise à jour, l'ancien daemon est déjà arrêté ; le nouveau démarre au
+lancement, d'une autre installation (dossier du paquet daemon + version).
+
+**Publier une release** (`.github/workflows/release.yml`) :
+
+```bash
+npm run release:version -- set 0.2.0
+```
+
+```bash
+git commit -am "Version 0.2.0"
+```
+
+```bash
+git tag -a v0.2.0 -m "Ce qui change dans cette version"
+```
+
+```bash
+git push origin main v0.2.0
+```
+
+Le tag construit les trois systèmes, signe les paquets de mise à jour, et
+crée une release **en brouillon** avec `latest.json`. Tant qu'elle n'est pas
+publiée à la main sur GitHub, aucune application ne la voit. Le message du
+tag annoté sert de notes de version, dans la release et dans le dialogue. Un
+tag qui ne dit pas la version des fichiers arrête le build
+(`version.mjs check`) ; `npm run release:version` sans argument dit la
+version, et échoue si deux fichiers divergent.
+
+La clé qui signe est dans les secrets du dépôt (`TAURI_SIGNING_PRIVATE_KEY`,
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), **et nulle part ailleurs**. La perdre,
+c'est ne plus pouvoir mettre à jour les applications déjà installées : il
+faudrait publier une autre clé publique, donc faire réinstaller à la main.
+Un build sans la clé (local, `bundle.yml`) ne produit aucun paquet de mise à
+jour, et ne signe rien.
+
+**Limites.** Sous macOS, seule l'architecture du poste de CI (arm64) est
+publiée. Le `.deb` se remplace par le gestionnaire de paquets, qui demande le
+mot de passe. L'exécutable unique doit être dans un dossier où l'utilisateur
+peut écrire.
+
 ### Ce qui n'est pas fait
 
 - **Aucune signature.** macOS : signature **ad hoc** seulement
@@ -120,10 +191,9 @@ en chemins absolus — le Node embarqué et le `cli.js` du Playwright embarqué.
   téléchargée tant qu'on ne l'a pas autorisée (clic droit → Ouvrir, ou
   `xattr -dr com.apple.quarantine`). Windows : installeur non signé,
   SmartScreen avertit.
-- **Aucune mise à jour automatique.** Une nouvelle version se réinstalle.
-  L'ancien daemon est remplacé comme entre deux clones : par
-  `PROTOCOL_VERSION` s'il a changé, sinon parce que l'installation (dossier
-  du paquet daemon + version) diffère, et seulement s'il est oisif.
+- **Aucune signature de code**, ce qui n'est pas la signature des mises à
+  jour (voir « Mises à jour et releases ») : celle-ci prouve qu'un paquet
+  vient de ce dépôt, pas à macOS ou à Windows que l'éditeur est connu.
 - **Pas d'AppImage.** Elle se monte à un chemin qui change à chaque
   lancement ; l'identité d'une installation et le lanceur conseillé sont des
   chemins, qui seraient faux au lancement suivant.
@@ -145,11 +215,22 @@ Windows n'ont jamais été construits ni lancés hors CI ; `harness.cmd` n'a
 jamais tourné ; une installation par le `.dmg`, le `.deb` ou l'installeur
 NSIS n'a jamais été faite.
 
+Mises à jour — constaté sous macOS (arm64), le 2026-11-11, avec une clé
+jetable : le bundle sort son paquet de mise à jour signé
+(`Midgaard.app.tar.gz` et sa signature), l'exécutable unique est signé, les
+deux signatures portent la version, `release.mjs` en tire un `latest.json`
+complet ; l'exécutable unique démarre et, sans release publiée, sa
+vérification échoue sans rien montrer. **Jamais constaté** : une mise à jour
+réelle, d'une version publiée à la suivante — ni le dialogue, ni le
+téléchargement, ni le remplacement du bundle ou de l'exécutable, sur aucun
+système ; le workflow `release.yml` n'a jamais tourné.
+
 ## Ce que la coque garantit
 
-- **La page n'a aucune capacité Tauri** (`app.security.capabilities: []`,
-  aucun plugin) : le dashboard ne parle qu'au daemon, en HTTP, comme dans un
-  navigateur.
+- **La page n'a aucune capacité Tauri** (`app.security.capabilities: []`) :
+  le dashboard ne parle qu'au daemon, en HTTP, comme dans un navigateur. Les
+  deux plugins de la coque (mise à jour, dialogue) ne servent qu'à elle, en
+  Rust : aucune de leurs commandes n'est accordée à la page.
 - **L'origine ne change pas.** La fenêtre charge `http://127.0.0.1:<port>/`,
   l'origine que le daemon accepte déjà : ses contrôles `Host`, `Origin` et
   `Sec-Fetch-Site` restent ceux du navigateur. Une page embarquée
@@ -194,8 +275,10 @@ Une application ouverte d'un double-clic n'hérite pas du `PATH` du terminal.
 | Fichier | Rôle |
 |---|---|
 | `src-tauri/src/main.rs` | Choix de la CLI (embarquée ou clone), démarrage du daemon, lecture de l'adresse, fenêtre, page d'erreur |
+| `src-tauri/src/update.rs` | Mise à jour depuis les releases GitHub : vérification, dialogue, arrêt du daemon oisif, installation |
 | `src-tauri/build.rs` | Contexte Tauri, chemin de `node` et racine du clone gravés |
-| `src-tauri/tauri.conf.json` | Configuration de base : aucune fenêtre ni capacité déclarée, pas de bundle |
+| `src-tauri/tauri.conf.json` | Configuration de base : aucune fenêtre ni capacité déclarée, pas de bundle ; la clé publique et l'adresse des mises à jour |
+| `src-tauri/tauri.release.conf.json` | Ce qu'une release ajoute : les paquets de mise à jour signés (seulement avec la clé) |
 | `src-tauri/tauri.bundle.conf.json` | Ce que le bundle ajoute : `runtime/` en ressource, signature ad hoc |
 | `src-tauri/Cargo.toml` | Dépendances ; les macros procédurales ne sont pas dépouillées (macOS 27 ne les chargeait plus) |
 | `src-tauri/icons/` | `icon.png`, et `icon.ico` qui le contient tel quel : Windows exige l'ICO pour la ressource de l'exécutable |
@@ -203,6 +286,8 @@ Une application ouverte d'un double-clic n'hérite pas du `PATH` du terminal.
 | `scripts/stage.mjs` | Assemble `src-tauri/runtime/` |
 | `scripts/bundle.mjs` | Assemble, puis lance le bundler de Tauri |
 | `scripts/portable.mjs` | Assemble, archive, et compile l'exécutable unique |
+| `scripts/release.mjs` | Fichiers à publier d'un poste de build, et `latest.json` |
+| `scripts/version.mjs` | La version, lue, vérifiée et écrite partout (`npm run release:version`) |
 | `launcher/harness`, `launcher/harness.cmd` | Le lanceur de la CLI embarquée |
 | `packages/cli/src/desktop.ts` | `harness desktop`, le lanceur de la coque d'un clone |
 
@@ -211,7 +296,13 @@ Une application ouverte d'un double-clic n'hérite pas du `PATH` du terminal.
 - `npm run test:desktop` : les tests Rust — l'adresse du dashboard (boucle
   locale seulement), l'arbre embarqué qui ne vaut qu'entier, le lanceur cité
   sans préfixe Windows, le `PATH` lu entre ses marqueurs ; avec
-  `--features portable`, le dépliage de l'archive (une fois, jamais à moitié).
+  `--features portable`, le dépliage de l'archive (une fois, jamais à moitié) ;
+  pour la mise à jour, la cible de l'exécutable unique, les notes montrées,
+  et le remplacement de l'exécutable — entier ou pas du tout.
+- `tests/unit/release.test.ts` : les cibles et le manifeste `latest.json`
+  (refus d'une version qui diverge, d'une cible en double, d'une signature
+  vide), la version écrite partout sans reformater ; `test:restart` (R10) :
+  `harness stop --if-idle` sur un vrai daemon.
 - `npm run test:standalone` (`tests/standalone.ts`) : l'arbre assemblé dans
   un dossier jetable, puis **lancé par son lanceur, hors du clone** — aucune
   source ni lien, daemon de l'arbre, dashboard embarqué servi, commandes

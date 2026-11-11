@@ -155,6 +155,12 @@ npm run desktop:bundle   # assemble l'arbre embarqué, puis construit le bundle
 npm run desktop:portable # ou un seul fichier à lancer, sans installeur
 ```
 
+L'application autonome **se met à jour** depuis les releases GitHub du dépôt :
+au lancement, elle propose la nouvelle version, et ne l'installe que sur ton
+accord, jamais pendant une tâche. Publier une release : pousser un tag
+`vX.Y.Z` (voir [apps/desktop/README.md](apps/desktop/README.md), « Mises à
+jour et releases »).
+
 Le bundle est dans `apps/desktop/src-tauri/target/release/bundle/` : `.app` et
 `.dmg` sous macOS, `.deb` sous Linux, installeur NSIS sous Windows. Il n'est
 **pas signé** : macOS demande de l'autoriser (clic droit → Ouvrir). Dans

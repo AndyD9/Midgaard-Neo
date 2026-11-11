@@ -6,6 +6,7 @@ La ligne de commande `harness`. Elle sert à installer, surveiller, dépanner �
 ```bash
 harness start                 # démarre le daemon s'il dort
 harness stop                  # l'arrête
+harness stop --if-idle        # l'arrête seulement s'il n'a aucune tâche active (code 3 sinon) — employé avant une mise à jour
 harness status [--limit N]    # état du daemon et tâches récentes
 harness doctor                # diagnostic de l'installation
 harness desktop               # ouvre la fenêtre desktop du dashboard

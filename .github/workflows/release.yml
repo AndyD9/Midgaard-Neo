@@ -1,0 +1,121 @@
+# Publie une release : pousser un tag `vX.Y.Z` construit l'application autonome
+# sur les trois systèmes, signe ce que les applications installées téléchargent
+# pour se mettre à jour, et crée une release GitHub **en brouillon**.
+#
+# En brouillon exprès : les applications ne lisent que la dernière release
+# **publiée** (`releases/latest/download/latest.json`). Tant que le brouillon
+# n'est pas publié à la main, personne ne se voit proposer la mise à jour — le
+# temps de relire les notes et d'essayer les fichiers.
+#
+# Le tag doit dire la version écrite dans les fichiers
+# (`node apps/desktop/scripts/version.mjs set X.Y.Z`, puis commit, puis tag) :
+# l'application compare sa version à celle de la release, et la signature de
+# chaque paquet porte la sienne. Un tag qui ment arrête le build avant tout.
+#
+# Deux secrets du dépôt : `TAURI_SIGNING_PRIVATE_KEY` et
+# `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, la clé qui signe les mises à jour. Sa
+# moitié publique est dans `apps/desktop/src-tauri/tauri.conf.json` ; une
+# application ne s'installe que ce que cette clé a signé. **La perdre, c'est ne
+# plus pouvoir mettre à jour les applications déjà installées** : il faudrait
+# publier une nouvelle clé publique, donc faire réinstaller à la main.
+#
+# Les notes de la release sont le message du tag s'il est annoté
+# (`git tag -a v0.2.0 -m "…"`), sinon celles que GitHub génère ; le message du
+# tag est aussi ce que montre le dialogue de mise à jour de l'application.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      # Une release sans l'un des trois systèmes aurait l'air complète :
+      # si l'un échoue, rien n'est publié.
+      fail-fast: true
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      - name: Le tag dit la version des fichiers
+        run: node apps/desktop/scripts/version.mjs check "${{ github.ref_name }}"
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev build-essential
+      - run: npm ci
+      - run: npm run build
+      # Ce qu'on publie est ce qu'on a éprouvé : l'arbre embarqué, lancé hors du clone.
+      - name: test:standalone
+        run: npm run test:standalone
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: bundle-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+      - name: Bundle, avec les paquets de mise à jour signés
+        run: npm run desktop:bundle -- --skip-build
+      - name: Exécutable unique, signé
+        run: npm run desktop:portable -- --skip-stage
+      - name: Fichiers à publier et cibles de mise à jour de ce poste
+        run: node apps/desktop/scripts/release.mjs collect --out release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}-${{ runner.arch }}
+          if-no-files-found: error
+          path: release-assets/
+
+  publish:
+    name: Release en brouillon
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24' }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+      # Le message d'un tag annoté, lu par l'API : `actions/checkout` ne garde
+      # pas l'annotation. Un tag léger désigne un commit, et n'a pas de message.
+      - name: Notes de version
+        run: |
+          kind=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.type)
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)
+          if [ "$kind" = "tag" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .message > notes.md
+          else
+            : > notes.md
+          fi
+      - name: Manifeste de mise à jour
+        run: node apps/desktop/scripts/release.mjs manifest --dir release-assets --tag "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+      - name: Release en brouillon
+        run: |
+          if [ -s notes.md ]; then
+            gh release create "$TAG" release-assets/* --draft --verify-tag --title "Midgaard ${TAG#v}" --notes-file notes.md
+          else
+            gh release create "$TAG" release-assets/* --draft --verify-tag --title "Midgaard ${TAG#v}" --generate-notes
+          fi

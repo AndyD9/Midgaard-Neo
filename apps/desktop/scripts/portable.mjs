@@ -14,6 +14,11 @@
  *    l'exécutable : il est livré avec Windows 11 et les Windows 10 à jour,
  *    mais une machine qui ne l'a pas n'ouvrira pas la fenêtre.
  *
+ * **Avec la clé de signature des mises à jour** dans l'environnement
+ * (`TAURI_SIGNING_PRIVATE_KEY`, posée par le workflow de release),
+ * l'exécutable est signé (`<fichier>.sig`), et sa signature porte sa version :
+ * c'est ce que vérifie l'exécutable en place avant de se remplacer.
+ *
  * Usage, à la racine du clone :
  *
  * ```bash
@@ -23,7 +28,7 @@
  * ```
  */
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -62,6 +67,20 @@ try {
   const out = join(outDir, `Midgaard-portable-${process.platform}-${process.arch}${WINDOWS ? '.exe' : ''}`)
   copyFileSync(built, out)
   console.log(`\nExécutable unique : ${out} (${Math.round(statSync(out).size / 1024 / 1024)} Mo)`)
+
+  if (process.env.TAURI_SIGNING_PRIVATE_KEY) {
+    // La version liée à la signature est celle que l'application annonce
+    // (`tauri.conf.json`) : un manifeste falsifié ne peut pas faire passer cet
+    // exécutable pour une version plus récente (`requireSignedVersion`).
+    const { version } = JSON.parse(readFileSync(join(TAURI_DIR, 'tauri.conf.json'), 'utf8'))
+    execFileSync('npx', ['tauri', 'signer', 'sign', '--app-version', version, out], {
+      cwd: join(ROOT, 'apps', 'desktop'),
+      stdio: ['ignore', 'ignore', 'inherit'],
+      shell: WINDOWS,
+    })
+    if (!existsSync(`${out}.sig`)) throw new Error('signature absente après `tauri signer sign`')
+    console.log(`Signature : ${out}.sig (version ${version})`)
+  }
 } catch (e) {
   console.error(`portable : ${e.message}`)
   process.exit(1)

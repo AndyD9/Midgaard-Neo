@@ -82,7 +82,8 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run desktop:stage` | Assemble ce que l'application autonome embarque (`apps/desktop/src-tauri/runtime/`) : Node, harness compilé, dépendances, dashboard, lanceur |
 | `npm run desktop:portable` | Construit l'exécutable unique : l'arbre embarqué archivé dans le binaire, déplié au premier lancement ; un seul fichier, sans installeur |
 | `npm run desktop:bundle` | Construit l'application autonome : assemble, puis bundle Tauri (`.app`/`.dmg`, `.deb`, NSIS) ; non signée |
-| `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `doctor`, `desktop`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
+| `npm run release:version` | Dit la version, échoue si les fichiers divergent ; `-- set X.Y.Z` l'écrit partout (paquets, verrou npm, Tauri, Cargo), `-- check vX.Y.Z` la compare à un tag |
+| `npm run harness -- <cmd>` | CLI : `start`, `stop` (`--if-idle` : seulement sans tâche active, code 3 sinon), `status`, `doctor`, `desktop`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho. Aussi `providers test`, `providers remove`, `pricing`, `pricing refresh` |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés |
 | `npm run harness -- workspaces` | Worktrees : `remove`, `clean` — la branche reste toujours |
@@ -233,6 +234,19 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   merge est un acte humain. Le retrait d'un worktree vérifie que le chemin est
   strictement sous le dossier des worktrees, même forcé : le chemin vient de la
   base, et une ligne fausse ne doit rien effacer.
+- **Une mise à jour ne s'installe que signée, sur l'accord de l'humain, et
+  jamais pendant une tâche** (`apps/desktop/src-tauri/src/update.rs`). La
+  signature est vérifiée par `tauri-plugin-updater` contre la clé publique de
+  `tauri.conf.json`, et **porte la version** (`requireSignedVersion`) : sans
+  cela, un manifeste falsifié ferait installer une ancienne version
+  authentique. Avant d'installer, la coque lance `harness stop --if-idle` :
+  c'est le daemon qui décide s'il est oisif, et un daemon qui travaille
+  reporte la mise à jour. Les plugins (mise à jour, dialogue) ne servent qu'à
+  la coque, en Rust ; la page n'en reçoit aucune commande. Seule
+  l'application autonome se met à jour, jamais la coque d'un clone. **Un
+  paquet de mise à jour ne se construit qu'avec la clé** (`bundle.mjs`) : un
+  build local ou `bundle.yml` n'en produit pas, et ne doit pas échouer faute
+  de clé.
 - **La coque desktop n'accorde aucune capacité Tauri à la page** et charge
   l'origine que le daemon accepte déjà (`http://127.0.0.1:<port>/`) :
   `security.ts` ne change pas. Elle ne navigue que sur cette origine, et
@@ -409,11 +423,16 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
 
 - Dépôt : https://github.com/AndyD9/Midgaard-Neo.
 - Ne jamais versionner `dist/` ni l'état runtime (`~/.midgaard`, jeton du daemon).
-- Cinq workflows : `e2e.yml` (les suites de `npm test` et `test:ui`, sur
+- Six workflows : `e2e.yml` (les suites de `npm test` et `test:ui`, sur
   macOS, Linux et Windows),
   `worktrees.yml` (`test:worktrees`), `vault.yml` (`test:vault`, un poste par
-  coffre), `desktop.yml` (la coque compilée et testée) et `bundle.yml`
-  (`test:standalone` puis l'application autonome, sur les trois).
+  coffre), `desktop.yml` (la coque compilée et testée), `bundle.yml`
+  (`test:standalone` puis l'application autonome, sur les trois) et
+  `release.yml` (un tag `v*` : les trois systèmes, paquets de mise à jour
+  signés, release GitHub **en brouillon** avec `latest.json`).
+- **Une release** : `npm run release:version -- set X.Y.Z`, commit, tag
+  `vX.Y.Z`, push. Le tag doit dire la version des fichiers, sinon le build
+  s'arrête. La clé de signature n'existe que dans les secrets du dépôt.
 
 ## Ce qui n'a jamais été constaté
 
@@ -445,3 +464,9 @@ Rien ne doit être écrit comme si ça l'avait été :
    à la souris, et la fenêtre au premier plan, n'ont pas été regardés. Les
    dialogues Windows (PowerShell) et Linux (zenity, kdialog) n'ont jamais été
    lancés.
+7. **Une mise à jour réelle de l'application.** Les paquets signés et
+   `latest.json` ont été produits sous macOS avec une clé jetable, et
+   l'exécutable unique lancé sans release publiée ; aucune application n'est
+   jamais passée d'une version publiée à la suivante — ni dialogue, ni
+   téléchargement, ni remplacement, sur aucun système. `release.yml` n'a
+   jamais tourné.

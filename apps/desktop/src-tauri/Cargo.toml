@@ -3,6 +3,7 @@
 # de vérité, et le même dashboard s'ouvre aussi dans un navigateur. Construite
 # depuis le clone (`npm run desktop:build`), ou en bundle autonome qui embarque
 # Node, le daemon et le dashboard (`npm run desktop:bundle`) ; non signée.
+# L'application autonome se met à jour depuis les releases GitHub (`src/update.rs`).
 [package]
 name = "midgaard-desktop"
 version = "0.1.0"
@@ -14,13 +15,19 @@ description = "Fenêtre desktop du dashboard Midgaard"
 tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
-# Aucun plugin : la page chargée est le dashboard du daemon, servi en HTTP
-# local, et elle ne reçoit aucune capacité Tauri (voir tauri.conf.json).
+# La page chargée est le dashboard du daemon, servi en HTTP local, et elle ne
+# reçoit aucune capacité Tauri (voir tauri.conf.json) : les deux plugins
+# ci-dessous ne servent qu'à la coque, en Rust (`src/update.rs`).
 tauri = { version = "2.12.5", features = [] }
 serde_json = "1.0.154"
 # Pour l'exécutable unique seulement (`portable`) : déplier l'arbre embarqué.
 tar = { version = "0.4", optional = true }
 flate2 = { version = "1.1", optional = true }
+# Mise à jour depuis les releases GitHub : manifeste, téléchargement, signature
+# vérifiée (minisign), installation du bundle.
+tauri-plugin-updater = "2.14.1"
+# Le dialogue natif « une version est disponible », ouvert par la coque.
+tauri-plugin-dialog = "2.8.4"
 
 [features]
 # Le mode « production » de Tauri : le dossier `ui/` est embarqué, et rien

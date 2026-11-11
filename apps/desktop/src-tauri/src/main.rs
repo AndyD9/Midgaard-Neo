@@ -23,6 +23,9 @@
 //!  - **depuis un clone** (`npm run desktop`) : le Node et la racine du clone
 //!     donnés par `MIDGAARD_NODE` et `MIDGAARD_REPO`, sinon ceux du build.
 //!
+//! L'application autonome **se met à jour** depuis les releases GitHub, sur
+//! l'accord de l'utilisateur et jamais pendant une tâche ([`update`]).
+//!
 //! Ce qu'elle ne fait pas, délibérément :
 //!
 //!  - **aucune capacité Tauri n'est accordée à la page** (`capabilities: []`) :
@@ -43,6 +46,8 @@
 
 // Une application de fenêtre, sans console, une fois construite en release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod update;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -319,8 +324,11 @@ mod portable {
 /// l'adresse. Une seule erreur possible à montrer.
 ///
 /// `data_dir` ne sert qu'à l'exécutable unique : c'est là qu'il se déplie.
+///
+/// Rend aussi la CLI embarquée quand l'application est autonome : c'est elle,
+/// et elle seule, qui se met à jour — la coque d'un clone suit son clone.
 #[cfg_attr(not(feature = "portable"), allow(unused_variables))]
-fn prepare(resources: Option<&Path>, data_dir: Option<&Path>) -> Result<Url, String> {
+fn prepare(resources: Option<&Path>, data_dir: Option<&Path>) -> Result<(Url, Option<update::Cli>), String> {
     // L'exécutable unique n'a pas de dossier de ressources : son arbre est en
     // lui. Déplié, il se présente comme celui d'un bundle. `MIDGAARD_REPO`
     // garde la main, comme partout.
@@ -334,16 +342,26 @@ fn prepare(resources: Option<&Path>, data_dir: Option<&Path>) -> Result<Url, Str
     let launch = choose_launch(resources)?;
     let home = runtime_home().ok_or("dossier personnel introuvable ; définir MIDGAARD_HOME")?;
     ensure_daemon(&launch)?;
-    dashboard_url(&home)
+    let url = dashboard_url(&home)?;
+    let embedded = match launch {
+        Launch::Standalone { node, cli, .. } => Some(update::Cli { node, cli }),
+        Launch::Clone { .. } => None,
+    };
+    Ok((url, embedded))
 }
 
 fn main() -> ExitCode {
     let result = tauri::Builder::default()
+        // Deux plugins, employés **par la coque seule**, en Rust : la page ne
+        // reçoit toujours aucune capacité (`capabilities: []`), donc aucune de
+        // leurs commandes — ni vérifier, ni installer, ni ouvrir un dialogue.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let resources = app.path().resource_dir().ok();
             let data_dir = app.path().app_local_data_dir().ok();
             match prepare(resources.as_deref(), data_dir.as_deref()) {
-                Ok(url) => {
+                Ok((url, embedded)) => {
                     let allowed = url.origin();
                     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                         .title("Midgaard")
@@ -355,6 +373,11 @@ fn main() -> ExitCode {
                         // effet, et le webview ne tente pas de l'ouvrir.
                         .on_navigation(move |target| target.origin() == allowed)
                         .build()?;
+                    // Après la fenêtre, et hors de son fil : une vérification
+                    // lente ou sans réseau ne retarde pas l'ouverture.
+                    if let Some(cli) = embedded {
+                        update::spawn(app.handle().clone(), cli);
+                    }
                 }
                 Err(message) => {
                     eprintln!("midgaard : {message}");

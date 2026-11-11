@@ -19,6 +19,13 @@
  *    chemin — les deux seraient faux au lancement suivant ;
  *  - Windows : installeur NSIS, non signé.
  *
+ * **Avec la clé de signature des mises à jour** dans l'environnement
+ * (`TAURI_SIGNING_PRIVATE_KEY`, posée par le workflow de release), le bundler
+ * produit aussi les paquets que l'application installée télécharge pour se
+ * mettre à jour, chacun avec sa signature (`createUpdaterArtifacts`). Sans la
+ * clé — un build local, la CI ordinaire —, rien de tel n'est demandé : le
+ * bundler échouerait à signer.
+ *
  * Usage, à la racine du clone :
  *
  * ```bash
@@ -57,7 +64,11 @@ try {
   // La CLI de Tauri est une dépendance de développement du clone ; `npx` est
   // un `.cmd` sous Windows, que `execFile` ne lance qu'à travers un shell.
   // Elle se lance depuis `apps/desktop` : c'est de là qu'elle cherche `src-tauri/`.
-  execFileSync('npx', ['tauri', 'build', '--config', join(TAURI_DIR, 'tauri.bundle.conf.json'), '--bundles', bundles], {
+  // Les paquets de mise à jour ne se construisent qu'avec la clé qui les signe.
+  const updater = process.env.TAURI_SIGNING_PRIVATE_KEY
+    ? ['--config', join(TAURI_DIR, 'tauri.release.conf.json')]
+    : []
+  execFileSync('npx', ['tauri', 'build', '--config', join(TAURI_DIR, 'tauri.bundle.conf.json'), ...updater, '--bundles', bundles], {
     cwd: join(ROOT, 'apps', 'desktop'),
     stdio: 'inherit',
     shell: WINDOWS,

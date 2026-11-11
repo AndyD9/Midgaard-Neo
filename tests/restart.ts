@@ -2,7 +2,7 @@
  * @file Suite d'intégration : `npm run test:restart` (environ 1 min).
  *
  * Elle vise ce que les tests unitaires ne peuvent pas atteindre : un vrai
- * processus daemon, une vraie base, de vraies sockets. Neuf scénarios, chacun
+ * processus daemon, une vraie base, de vraies sockets. Dix scénarios, chacun
  * couvrant une promesse qui, si elle tombait, le ferait en silence. R8 et R9
  * viennent de l'ancienne suite `test:wait`, qui passait par la façade MCP vers
  * Claude Code : ce qu'elle éprouvait du daemon et de son démarrage se joue
@@ -23,7 +23,11 @@
  *       —, et l'interrompre ne coupe pas la tâche ;
  *  - R9 `ensureDaemon` (CLI) : deux appels simultanés ne laissent qu'un
  *       daemon, un daemon tué est relancé, un daemon d'un autre protocole est
- *       remplacé.
+ *       remplacé ;
+ *  - R10 `harness stop --if-idle`, ce que lance l'application avant de se
+ *       mettre à jour : refuse d'arrêter un daemon qui a une tâche active
+ *       (code 3, daemon vivant, tâche intacte), puis l'arrête une fois oisif
+ *       et ne rend la main qu'après la mort du processus.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
@@ -496,6 +500,55 @@ await scenario(outcomes, 'R9 ensureDaemon : un seul daemon, relancé après SIGK
     if (saved.vault === undefined) delete process.env.MIDGAARD_VAULT
     else process.env.MIDGAARD_VAULT = saved.vault
     await sleep(200)
+    fresh.cleanup()
+  }
+})
+
+await scenario(outcomes, 'R10 stop --if-idle : refuse tant qu\'une tâche est active, arrête un daemon oisif', async () => {
+  const fresh = tempHome('stop-idle')
+  try {
+    const { child, rt } = await startDaemon(fresh.config, fresh.home)
+    const problems: string[] = []
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    // La commande que lance la coque, par la vraie CLI et sans rien dans
+    // l'environnement : seul `--home` désigne le runtime.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('MIDGAARD_')))
+    // Lancée sans bloquer ce processus (`spawn`, pas `spawnSync`) : le daemon
+    // est son enfant, et un parent bloqué ne le récolte pas — mort, il
+    // resterait un zombie, que la commande verrait encore « vivant ».
+    const stopIfIdle = async (): Promise<{ status: number | null; stdout: string }> => {
+      const cli = spawn(harnessCommand('stop --if-idle', { repoRoot, home: fresh.home }), { shell: true, cwd: tmpdir(), env, stdio: ['ignore', 'pipe', 'ignore'] })
+      let stdout = ''
+      cli.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
+      const [status] = (await once(cli, 'close')) as [number | null]
+      return { status, stdout }
+    }
+
+    const task = (await createTask(rt, 'tâche en cours pendant la mise à jour', 30)).body.task
+    await until(async () => (await daemonJson<TaskView>(rt, `/api/tasks/${task.id}`)).body.task.status === 'running', 10_000)
+    const busy = await stopIfIdle()
+    if (busy.status !== 3) problems.push(`daemon occupé : code ${busy.status} au lieu de 3 (${busy.stdout.trim()})`)
+    if (!pidAlive(rt.pid)) problems.push('le daemon occupé a été arrêté')
+    const still = (await daemonJson<TaskView>(rt, `/api/tasks/${task.id}`)).body.task.status
+    if (still !== 'running') problems.push(`la tâche active a été touchée : ${still}`)
+
+    await daemonJson(rt, `/api/tasks/${task.id}/cancel`, { method: 'POST', body: JSON.stringify({ reason: 'fin du scénario' }) })
+    await until(async () => (await daemonJson<TaskView>(rt, `/api/tasks/${task.id}`)).body.task.status === 'cancelled', 10_000)
+    const idle = await stopIfIdle()
+    if (idle.status !== 0) problems.push(`daemon oisif : code ${idle.status} (${idle.stdout.trim()})`)
+    // La commande ne rend la main qu'une fois le processus mort : lu au système, tout de suite.
+    const deadAtReturn = !pidAlive(rt.pid)
+    if (!deadAtReturn) problems.push('la commande a rendu la main avant la mort du daemon')
+    if (child.exitCode === null) await once(child, 'exit')
+    // Plus de daemon : il n'y a rien à arrêter, et ce n'est pas une erreur.
+    const none = await stopIfIdle()
+    if (none.status !== 0) problems.push(`sans daemon : code ${none.status}`)
+
+    return {
+      verdict: problems.length === 0 ? 'PASS' : 'FAIL',
+      detail: problems.length === 0 ? 'occupé → code 3, daemon vivant, tâche intacte ; oisif → arrêté, mort au retour de la commande ; sans daemon → 0' : problems.join(' ; '),
+    }
+  } finally {
     fresh.cleanup()
   }
 })
