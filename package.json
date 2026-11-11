@@ -25,6 +25,7 @@
     "test:desktop": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "desktop:stage": "node apps/desktop/scripts/stage.mjs",
     "desktop:bundle": "node apps/desktop/scripts/bundle.mjs",
+    "desktop:portable": "node apps/desktop/scripts/portable.mjs",
     "test:standalone": "node --conditions=midgaard-dev tests/standalone.ts",
     "daemon": "node --conditions=midgaard-dev packages/daemon/src/main.ts",
     "dashboard:dev": "npm run dev --workspace @midgaard/dashboard",

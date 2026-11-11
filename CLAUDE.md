@@ -78,6 +78,7 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run desktop:build` | Construit la coque Tauri (`apps/desktop`, Rust requis) ; facultatif |
 | `npm run desktop` | Ouvre la fenêtre desktop du dashboard, démarre le daemon au besoin |
 | `npm run desktop:stage` | Assemble ce que l'application autonome embarque (`apps/desktop/src-tauri/runtime/`) : Node, harness compilé, dépendances, dashboard, lanceur |
+| `npm run desktop:portable` | Construit l'exécutable unique : l'arbre embarqué archivé dans le binaire, déplié au premier lancement ; un seul fichier, sans installeur |
 | `npm run desktop:bundle` | Construit l'application autonome : assemble, puis bundle Tauri (`.app`/`.dmg`, `.deb`, NSIS) ; non signée |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `doctor`, `desktop`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho. Aussi `providers test`, `providers remove`, `pricing`, `pricing refresh` |

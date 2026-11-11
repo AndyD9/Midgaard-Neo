@@ -16,6 +16,10 @@
 //!     compilé et le dashboard (`runtime/`, assemblé par
 //!     `apps/desktop/scripts/stage.mjs`). Rien d'autre n'est requis sur la
 //!     machine, ni Node ni clone ;
+//!  - **exécutable unique** (`--features portable`) : le même arbre voyage
+//!     **dans** le binaire, en archive, et se déplie au premier lancement
+//!     dans le dossier de données de l'application ([`portable`]). Un seul
+//!     fichier à copier et à lancer, sans installeur ;
 //!  - **depuis un clone** (`npm run desktop`) : le Node et la racine du clone
 //!     donnés par `MIDGAARD_NODE` et `MIDGAARD_REPO`, sinon ceux du build.
 //!
@@ -259,9 +263,74 @@ fn dashboard_url(home: &Path) -> Result<Url, String> {
     }
 }
 
+/// L'exécutable unique : l'arbre embarqué, archivé dans le binaire.
+#[cfg(feature = "portable")]
+mod portable {
+    use std::path::{Path, PathBuf};
+
+    /// L'archive `tar.gz` de `runtime/`, posée par `build.rs`.
+    const ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.tar.gz"));
+    /// Empreinte de l'archive : le nom du dossier où elle se déplie.
+    const STAMP: &str = env!("MIDGAARD_RUNTIME_STAMP");
+
+    /// Déplie l'arbre embarqué s'il ne l'est pas déjà, et rend le dossier qui
+    /// contient `runtime/`.
+    pub fn ensure(data_dir: &Path) -> Result<PathBuf, String> {
+        unpack_once(ARCHIVE, STAMP, &data_dir.join("portable"))
+    }
+
+    /// Déplie `archive` dans `base/<stamp>`, une fois.
+    ///
+    /// Le dépliage se fait **à côté**, puis le dossier est renommé : un
+    /// dépliage interrompu (fenêtre fermée, machine éteinte) ne laisse jamais
+    /// un arbre partiel sous le nom définitif, que le lancement suivant
+    /// prendrait pour entier. Deux lancements simultanés déplient chacun de
+    /// leur côté ; le second renommage échoue, et son auteur prend le dossier
+    /// du premier.
+    pub fn unpack_once(archive: &[u8], stamp: &str, base: &Path) -> Result<PathBuf, String> {
+        let target = base.join(stamp);
+        if target.join("runtime").is_dir() {
+            return Ok(target);
+        }
+        let staging = base.join(format!("{stamp}.tmp-{}", std::process::id()));
+        let fail = |what: &str, e: std::io::Error| format!("dépliage de l'application dans {} : {what} ({e})", base.display());
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(&staging).map_err(|e| fail("dossier non créé", e))?;
+        // `unpack` refuse de lui-même une entrée qui sortirait du dossier, et
+        // garde les droits d'exécution du Node et du lanceur.
+        tar::Archive::new(flate2::read::GzDecoder::new(archive))
+            .unpack(&staging)
+            .map_err(|e| fail("archive illisible", e))?;
+        match std::fs::rename(&staging, &target) {
+            Ok(()) => Ok(target),
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&staging);
+                if target.join("runtime").is_dir() {
+                    Ok(target)
+                } else {
+                    Err(fail("renommage refusé", e))
+                }
+            }
+        }
+    }
+}
+
 /// Tout ce qui précède la fenêtre : choisir la CLI, démarrer le daemon, lire
 /// l'adresse. Une seule erreur possible à montrer.
-fn prepare(resources: Option<&Path>) -> Result<Url, String> {
+///
+/// `data_dir` ne sert qu'à l'exécutable unique : c'est là qu'il se déplie.
+#[cfg_attr(not(feature = "portable"), allow(unused_variables))]
+fn prepare(resources: Option<&Path>, data_dir: Option<&Path>) -> Result<Url, String> {
+    // L'exécutable unique n'a pas de dossier de ressources : son arbre est en
+    // lui. Déplié, il se présente comme celui d'un bundle. `MIDGAARD_REPO`
+    // garde la main, comme partout.
+    #[cfg(feature = "portable")]
+    let unpacked = match std::env::var("MIDGAARD_REPO").ok().filter(|p| !p.is_empty()) {
+        Some(_) => None,
+        None => Some(portable::ensure(data_dir.ok_or("dossier de données de l'application introuvable")?)?),
+    };
+    #[cfg(feature = "portable")]
+    let resources = unpacked.as_deref().or(resources);
     let launch = choose_launch(resources)?;
     let home = runtime_home().ok_or("dossier personnel introuvable ; définir MIDGAARD_HOME")?;
     ensure_daemon(&launch)?;
@@ -272,7 +341,8 @@ fn main() -> ExitCode {
     let result = tauri::Builder::default()
         .setup(|app| {
             let resources = app.path().resource_dir().ok();
-            match prepare(resources.as_deref()) {
+            let data_dir = app.path().app_local_data_dir().ok();
+            match prepare(resources.as_deref(), data_dir.as_deref()) {
                 Ok(url) => {
                     let allowed = url.origin();
                     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
@@ -376,6 +446,40 @@ mod tests {
     fn le_lanceur_conseille_est_entre_guillemets_sans_prefixe_windows() {
         assert_eq!(launcher_value(Path::new("/Applications/Mid gaard.app/x/harness")), "\"/Applications/Mid gaard.app/x/harness\"");
         assert_eq!(launcher_value(Path::new(r"\\?\C:\Users\me\Midgaard\harness.cmd")), "\"C:\\Users\\me\\Midgaard\\harness.cmd\"");
+    }
+
+    /// L'exécutable unique : l'archive se déplie une fois, entière ou pas du tout.
+    #[cfg(feature = "portable")]
+    #[test]
+    fn l_archive_se_deplie_une_fois_et_jamais_a_moitie() {
+        use super::portable::unpack_once;
+        // Une archive minimale : runtime/app/standalone.json.
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast()));
+        let body = b"{}";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder.append_data(&mut header, "runtime/app/standalone.json", &body[..]).unwrap();
+        let archive = builder.into_inner().unwrap().finish().unwrap();
+
+        let base = std::env::temp_dir().join(format!("midgaard-portable-{}-{}", std::process::id(), rand_suffix()));
+        let first = unpack_once(&archive, "abc-1", &base).unwrap();
+        assert!(first.join("runtime/app/standalone.json").is_file());
+        // Aucun dossier de dépliage ne traîne : seul le dossier définitif reste.
+        let left: Vec<_> = fs::read_dir(&base).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("abc-1")]);
+        // Un second lancement ne redéplie pas : un fichier ajouté entre-temps survit.
+        fs::write(first.join("temoin"), "x").unwrap();
+        assert_eq!(unpack_once(&archive, "abc-1", &base).unwrap(), first);
+        assert!(first.join("temoin").is_file());
+        // Une autre version se déplie à côté, sans toucher à la première.
+        let second = unpack_once(&archive, "def-2", &base).unwrap();
+        assert_ne!(second, first);
+        assert!(first.join("temoin").is_file());
+        // Une archive corrompue ne laisse rien sous le nom définitif.
+        assert!(unpack_once(b"pas une archive", "ghi-3", &base).is_err());
+        assert!(!base.join("ghi-3").exists());
     }
 
     #[test]

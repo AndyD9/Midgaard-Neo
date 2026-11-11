@@ -28,7 +28,42 @@ fn main() {
     println!("cargo:rerun-if-env-changed=npm_node_execpath");
     println!("cargo:rerun-if-env-changed=NODE");
 
+    embed_runtime(&manifest);
+
     tauri_build::build()
+}
+
+/// Pour l'exécutable unique (`--features portable`) : copie l'archive de
+/// l'arbre embarqué là où `include_bytes!` la lit, et grave une empreinte de
+/// son contenu. L'empreinte nomme le dossier où l'archive se déplie : une
+/// nouvelle version se déplie à côté de l'ancienne, jamais par-dessus un
+/// daemon qui tourne encore.
+fn embed_runtime(manifest: &std::path::Path) {
+    println!("cargo:rerun-if-env-changed=MIDGAARD_RUNTIME_ARCHIVE");
+    if std::env::var("CARGO_FEATURE_PORTABLE").is_err() {
+        return;
+    }
+    let archive = std::env::var("MIDGAARD_RUNTIME_ARCHIVE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| manifest.join("runtime.tar.gz"));
+    println!("cargo:rerun-if-changed={}", archive.display());
+    let bytes = std::fs::read(&archive).unwrap_or_else(|e| {
+        panic!(
+            "exécutable unique : {} illisible ({e}) — construire par `npm run desktop:portable`",
+            archive.display()
+        )
+    });
+    let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    std::fs::write(out.join("runtime.tar.gz"), &bytes).expect("copie de l'archive");
+    // FNV-1a 64 bits : écrit ici pour que l'empreinte ne dépende ni d'une
+    // dépendance ni de la version de Rust. Ce n'est pas une preuve
+    // d'intégrité, seulement un nom de dossier stable pour un contenu donné.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in &bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    println!("cargo:rustc-env=MIDGAARD_RUNTIME_STAMP={hash:016x}-{}", bytes.len());
 }
 
 /// Un chemin sans le préfixe `\\?\` que `canonicalize` ajoute sous Windows :

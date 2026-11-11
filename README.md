@@ -141,7 +141,8 @@ npm run desktop        # ouvre la fenêtre ; démarre le daemon au besoin
 Le même code, en bundle : Node, le daemon et le dashboard embarqués.
 
 ```bash
-npm run desktop:bundle # assemble l'arbre embarqué, puis construit le bundle
+npm run desktop:bundle   # assemble l'arbre embarqué, puis construit le bundle
+npm run desktop:portable # ou un seul fichier à lancer, sans installeur
 ```
 
 Le bundle est dans `apps/desktop/src-tauri/target/release/bundle/` : `.app` et

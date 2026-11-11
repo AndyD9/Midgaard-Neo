@@ -20,6 +20,7 @@ npm run desktop:build    # la coque seule (Rust requis), après chaque mise à j
 npm run desktop          # ouvre la fenêtre ; démarre le daemon au besoin
 
 npm run desktop:bundle   # l'application autonome : assemble, puis construit le bundle
+npm run desktop:portable # l'exécutable unique : un seul fichier, sans installeur
 ```
 
 ## L'application autonome
@@ -60,6 +61,36 @@ Ce que l'assemblage garantit, et pourquoi :
   `actions/setup-node` est l'officiel : la CI ne télécharge rien.
 - **Le dossier produit est effacé puis recréé**, et jamais un dossier qui
   contiendrait le clone.
+
+### L'exécutable unique
+
+`npm run desktop:portable` (`scripts/portable.mjs`) produit **un seul
+fichier** — `Midgaard-portable-win32-x64.exe` sous Windows — à copier et à
+lancer, sans installeur. L'arbre embarqué est archivé (`runtime.tar.gz`) et
+inclus **dans** le binaire (`--features portable`) ; au premier lancement, la
+coque le déplie dans le dossier de données de l'application, puis fait comme
+un bundle.
+
+- **Où il se déplie** : `%LOCALAPPDATA%\fr.midgaard.desktop\portable\<empreinte>\`
+  sous Windows, `~/Library/Application Support/fr.midgaard.desktop/portable/…`
+  sous macOS. L'empreinte est celle de l'archive : une nouvelle version se
+  déplie **à côté** de l'ancienne, jamais par-dessus un daemon qui tourne.
+  Les anciennes versions ne sont pas retirées.
+- **Jamais à moitié** : le dépliage se fait dans un dossier voisin, renommé à
+  la fin. Interrompu, il ne laisse rien sous le nom définitif.
+- **Le premier lancement est plus lent** : quelques milliers de fichiers à
+  écrire avant que la fenêtre s'ouvre — 5 secondes constatées sous macOS,
+  davantage à prévoir sous un antivirus. Rien ne s'affiche pendant ce temps.
+- **Sous Windows, WebView2 doit être là** : il est livré avec Windows 11 et
+  les Windows 10 à jour ; l'exécutable ne l'installe pas, contrairement à
+  l'installeur NSIS.
+- **Pour le retirer** : supprimer le fichier, puis son dossier de données.
+
+Constaté sous macOS (arm64), le 2026-11-11 : le fichier seul dans un dossier,
+lancé avec un environnement minimal, se déplie et démarre un daemon dont
+l'installation est sous le dossier déplié — dont le chemin porte une espace.
+**Jamais constaté sous Windows** : l'exécutable y est construit par la CI,
+qui ne le lance pas.
 
 ### Le lanceur, et les commandes conseillées
 
@@ -171,6 +202,7 @@ Une application ouverte d'un double-clic n'hérite pas du `PATH` du terminal.
 | `ui/index.html` | Page embarquée : n'apparaît que si le daemon n'a pas pu démarrer |
 | `scripts/stage.mjs` | Assemble `src-tauri/runtime/` |
 | `scripts/bundle.mjs` | Assemble, puis lance le bundler de Tauri |
+| `scripts/portable.mjs` | Assemble, archive, et compile l'exécutable unique |
 | `launcher/harness`, `launcher/harness.cmd` | Le lanceur de la CLI embarquée |
 | `packages/cli/src/desktop.ts` | `harness desktop`, le lanceur de la coque d'un clone |
 
@@ -178,7 +210,8 @@ Une application ouverte d'un double-clic n'hérite pas du `PATH` du terminal.
 
 - `npm run test:desktop` : les tests Rust — l'adresse du dashboard (boucle
   locale seulement), l'arbre embarqué qui ne vaut qu'entier, le lanceur cité
-  sans préfixe Windows, le `PATH` lu entre ses marqueurs.
+  sans préfixe Windows, le `PATH` lu entre ses marqueurs ; avec
+  `--features portable`, le dépliage de l'archive (une fois, jamais à moitié).
 - `npm run test:standalone` (`tests/standalone.ts`) : l'arbre assemblé dans
   un dossier jetable, puis **lancé par son lanceur, hors du clone** — aucune
   source ni lien, daemon de l'arbre, dashboard embarqué servi, commandes

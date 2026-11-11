@@ -18,6 +18,9 @@ tauri-build = { version = "2.7.4", features = [] }
 # local, et elle ne reçoit aucune capacité Tauri (voir tauri.conf.json).
 tauri = { version = "2.12.5", features = [] }
 serde_json = "1.0.154"
+# Pour l'exécutable unique seulement (`portable`) : déplier l'arbre embarqué.
+tar = { version = "0.4", optional = true }
+flate2 = { version = "1.1", optional = true }
 
 [features]
 # Le mode « production » de Tauri : le dossier `ui/` est embarqué, et rien
@@ -25,6 +28,11 @@ serde_json = "1.0.154"
 # ici on construit par `cargo`, d'où le défaut.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# L'exécutable unique : l'arbre embarqué (`runtime/`) voyage **dans** le
+# binaire, en archive, et se déplie au premier lancement dans le dossier de
+# données de l'application. `build.rs` exige alors `runtime.tar.gz`, produit
+# par `apps/desktop/scripts/portable.mjs`.
+portable = ["dep:tar", "dep:flate2"]
 
 [profile.release]
 strip = true

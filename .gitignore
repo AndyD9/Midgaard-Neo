@@ -9,6 +9,7 @@ apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
 # Ce que l'application autonome embarque, assemblé par `npm run desktop:stage`
 apps/desktop/src-tauri/runtime/
+apps/desktop/src-tauri/runtime.tar.gz
 
 # État runtime du harness. Il vit normalement dans ~/.midgaard ;
 # ces entrées couvrent un MIDGAARD_HOME pointé dans le dépôt.
