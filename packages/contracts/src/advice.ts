@@ -58,8 +58,22 @@ export interface CommandTarget {
  *          ou, dans l'application autonome, `"/Applications/…/harness" approve 38…`
  */
 export function harnessCommand(args: string, target: CommandTarget = {}): string {
-  const home = target.home ? ` --home "${target.home}"` : ''
+  const home = target.home ? ` --home "${quotable(target.home)}"` : ''
   if (target.launcher) return `${target.launcher}${home} ${args}`
-  const npm = target.repoRoot ? `npm --prefix "${target.repoRoot}" run harness --` : 'npm run harness --'
+  const npm = target.repoRoot ? `npm --prefix "${quotable(target.repoRoot)}" run harness --` : 'npm run harness --'
   return `${npm}${home} ${args}`
+}
+
+/**
+ * Un chemin qu'on peut mettre entre guillemets doubles : sans séparateur final.
+ *
+ * Sous Windows, `"C:\depot\"` ne se ferme pas : la barre oblique inverse
+ * finale échappe le guillemet, et tout ce qui suit est avalé dans l'argument —
+ * npm ne recevait plus de commande et affichait son aide. Constaté en CI
+ * (`test:restart`, R8), avec une racine tirée d'une URL de dossier, qui finit
+ * toujours par un séparateur. Une racine (`/`, `C:\`) garde le sien.
+ */
+function quotable(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  return trimmed === '' || /^[A-Za-z]:$/.test(trimmed) ? path : trimmed
 }

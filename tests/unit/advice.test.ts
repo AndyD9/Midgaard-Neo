@@ -36,6 +36,17 @@ describe('harnessCommand', () => {
     )
   })
 
+  it('retire le séparateur final d’un chemin : sous Windows il échapperait le guillemet', () => {
+    assert.equal(
+      harnessCommand('approve a1', { repoRoot: 'D:\\a\\Midgaard\\', home: 'C:\\rt\\' }),
+      'npm --prefix "D:\\a\\Midgaard" run harness -- --home "C:\\rt" approve a1',
+    )
+    assert.equal(harnessCommand('status', { repoRoot: '/x/Midgaard/' }), 'npm --prefix "/x/Midgaard" run harness -- status')
+    // Une racine garde son séparateur : `C:` seul désigne le dossier courant du lecteur.
+    assert.equal(harnessCommand('status', { home: '/' }), 'npm run harness -- --home "/" status')
+    assert.equal(harnessCommand('status', { home: 'C:\\' }), 'npm run harness -- --home "C:\\" status')
+  })
+
   it('dans l’application autonome, passe par le lanceur embarqué, jamais par npm', () => {
     const launcher = '"/Applications/Midgaard.app/Contents/Resources/runtime/app/bin/harness"'
     // `repoRoot` n'a plus de sens : il n'y a pas de clone, et le lanceur est absolu.
