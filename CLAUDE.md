@@ -63,7 +63,7 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `packages/secrets` | Coffre système pour les clés d'API |
 | `packages/cli` | Ligne de commande `harness` ; `ensureDaemon` (`src/daemon-client.ts`) |
 | `apps/dashboard` | Interface React servie par le daemon |
-| `apps/desktop` | Coque Tauri autour du dashboard |
+| `apps/desktop` | Coque Tauri autour du dashboard ; en bundle, l'application autonome (Node, daemon et dashboard embarqués) |
 | `tests` | Suites unitaires et d'intégration |
 
 ## Commandes (à la racine)
@@ -77,6 +77,8 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run dashboard:dev` | Serveur Vite du dashboard, rechargement à chaud (daemon démarré avant) |
 | `npm run desktop:build` | Construit la coque Tauri (`apps/desktop`, Rust requis) ; facultatif |
 | `npm run desktop` | Ouvre la fenêtre desktop du dashboard, démarre le daemon au besoin |
+| `npm run desktop:stage` | Assemble ce que l'application autonome embarque (`apps/desktop/src-tauri/runtime/`) : Node, harness compilé, dépendances, dashboard, lanceur |
+| `npm run desktop:bundle` | Construit l'application autonome : assemble, puis bundle Tauri (`.app`/`.dmg`, `.deb`, NSIS) ; non signée |
 | `npm run harness -- <cmd>` | CLI : `start`, `stop`, `status`, `doctor`, `desktop`, `approve`, `reject` ; `--home <dossier>` avant la commande vise un autre runtime |
 | `npm run harness -- providers add <id> --model <m>` | Déclare un fournisseur ; clé saisie sans écho. Aussi `providers test`, `providers remove`, `pricing`, `pricing refresh` |
 | `npm run harness -- agents` | Profils d'exécution, et pourquoi certains sont désactivés ; `agents limits <profil> --timeout 900` les règle (relèvement confirmé) |
@@ -93,12 +95,13 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~1 min — base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base ; les serveurs MCP : outil non coché ou changé jamais reçu par le serveur, secret d'un serveur jamais persisté, exécutant créé borné, aucun serveur après `SIGKILL` (`npx playwright install chromium` au préalable) |
 | `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur : direct, approbation, reconnexion, diff d'une tâche Developer, arbre d'un orchestrateur, flux (conversation, sortie des commandes, approbation), lecture « navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP et limites aux Profils, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs » (`npm run build` et `npx playwright install chromium` au préalable) |
-| `npm run test:desktop` | ~2 min la première fois — les tests Rust de la coque (adresse du dashboard) |
+| `npm run test:desktop` | ~2 min la première fois — les tests Rust de la coque (adresse du dashboard, arbre embarqué entier, lanceur, `PATH` du shell) |
+| `npm run test:standalone` | ~15 s — l'arbre embarqué assemblé puis lancé par son lanceur, hors du clone : aucune source ni lien, daemon de l'arbre, dashboard embarqué, conseils par le lanceur, aucun processus après `stop` (`npm run build` au préalable) ; dit si le Node du poste n'est pas embarquable |
 | `npm run test:live` | Payant, opt-in — un vrai modèle, coût comparé au solde du fournisseur ; s'abstient sans clé au coffre |
 | `npm run test:live-vision` | Payant, opt-in — une image envoyée à un modèle Venice qui la lit, coût relevé |
 
-`test:ui`, `test:vault`, `test:worktrees`, `test:desktop` et les deux `test:live*`
-ne font pas partie de `npm test`.
+`test:ui`, `test:vault`, `test:worktrees`, `test:desktop`, `test:standalone` et
+les deux `test:live*` ne font pas partie de `npm test`.
 
 ## Invariants à ne pas casser
 
@@ -136,7 +139,16 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   **avant** la commande, dès que le dossier runtime est désigné
   (`homeIsExplicit`) : sans lui, elle visait `~/.midgaard`, donc une autre
   installation. Un `harness …` écrit en dur est un conseil que personne ne peut
-  lancer.
+  lancer. **Dans l'application autonome, il n'y a ni clone ni npm** : la
+  commande est le lanceur embarqué (`MIDGAARD_LAUNCHER`, `config.launcher`),
+  et le dashboard cite le début de commande que le daemon annonce
+  (`harness_command`), jamais `npm run harness --` en dur.
+- **L'application autonome n'embarque ni source ni lien, et son Node est
+  autonome.** Les paquets du workspace y sont copiés depuis `dist/` ; un Node
+  lié à des bibliothèques de la machine (Homebrew) est **refusé** par
+  l'assemblage — copié, il ne démarre nulle part ailleurs, constaté. La
+  configuration de base de Tauri garde `bundle.active: false` : une ressource
+  déclarée et absente ferait échouer `npm run desktop:build`.
 - **La configuration est injectée**, jamais lue au chargement d'un module. Seuls
   les `main.ts` lisent `process.env`.
 - **Une migration publiée ne se modifie plus** : toute évolution ajoute une entrée
@@ -333,6 +345,10 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   par le daemon, non (`npm run build`).
 - **`erasableSyntaxOnly` est activé** : pas de propriétés de paramètres de
   constructeur (`constructor(readonly x: string)`), pas d'`enum`.
+- **`strip = true` casse la compilation release sous macOS 27** : les macros
+  procédurales, dépouillées, ne se chargent plus (« mis-aligned LINKEDIT
+  string pool »), et l'erreur visible est « can't find crate ». D'où
+  `[profile.release.build-override] strip = false` dans la coque.
 - **Les conditions d'export** (`midgaard-dev`) décident si un paquet se résout vers
   `src/` ou `dist/`. Elles **ne s'héritent pas** par un processus fils : les
   repasser explicitement (voir `nodeArgsFor` dans `tests/helpers.ts`).
@@ -350,10 +366,11 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
 
 - Dépôt : https://github.com/AndyD9/Midgaard-Neo.
 - Ne jamais versionner `dist/` ni l'état runtime (`~/.midgaard`, jeton du daemon).
-- Quatre workflows : `e2e.yml` (les suites de `npm test` et `test:ui`, sur
+- Cinq workflows : `e2e.yml` (les suites de `npm test` et `test:ui`, sur
   macOS, Linux et Windows),
   `worktrees.yml` (`test:worktrees`), `vault.yml` (`test:vault`, un poste par
-  coffre) et `desktop.yml` (la coque compilée et testée).
+  coffre), `desktop.yml` (la coque compilée et testée) et `bundle.yml`
+  (`test:standalone` puis l'application autonome, sur les trois).
 
 ## Ce qui n'a jamais été constaté
 
@@ -369,3 +386,8 @@ Rien ne doit être écrit comme si ça l'avait été :
    modèle** : les essais réels du Midgaard d'origine se sont conclus sans
    qu'un outil du serveur soit appelé (docs/SLICE8.md) ; le chemin est prouvé
    contre le faux serveur seulement (`tests/fake-mcp-server.ts`).
+4. **L'application autonome hors de macOS.** Les bundles Linux (`.deb`) et
+   Windows (NSIS) ne sont construits qu'en CI et n'ont jamais été installés
+   ni ouverts ; `harness.cmd` n'a jamais tourné. Sous macOS, le `.app` a été
+   lancé et son daemon interrogé, mais la fenêtre n'a pas été regardée, et
+   aucune installation par le `.dmg` n'a été faite.

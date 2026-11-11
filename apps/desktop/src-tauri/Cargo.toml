@@ -1,8 +1,8 @@
-# Coque desktop de Midgaard (Slice 6, étape 7) : une fenêtre Tauri 2 sur le
-# dashboard du daemon. Elle ne contient aucune logique du harness — le daemon
-# reste la seule source de vérité, et le même dashboard s'ouvre aussi dans un
-# navigateur. Construite localement depuis le clone, jamais distribuée
-# (décision du 2026-11-01) : ni signature ni notarisation.
+# Coque desktop de Midgaard : une fenêtre Tauri 2 sur le dashboard du daemon.
+# Elle ne contient aucune logique du harness — le daemon reste la seule source
+# de vérité, et le même dashboard s'ouvre aussi dans un navigateur. Construite
+# depuis le clone (`npm run desktop:build`), ou en bundle autonome qui embarque
+# Node, le daemon et le dashboard (`npm run desktop:bundle`) ; non signée.
 [package]
 name = "midgaard-desktop"
 version = "0.1.0"
@@ -30,3 +30,11 @@ custom-protocol = ["tauri/custom-protocol"]
 strip = true
 lto = true
 codegen-units = 1
+
+# Les macros procédurales sont des bibliothèques que rustc charge pendant la
+# compilation. Dépouillées (`strip`), elles ne se chargent plus sous macOS 27
+# (« mis-aligned LINKEDIT string pool » au dlopen), et toute la compilation
+# release échoue sur « can't find crate ». Elles ne sont pas dans le binaire
+# livré : les dépouiller ne gagnait rien.
+[profile.release.build-override]
+strip = false

@@ -1,0 +1,83 @@
+# L'application autonome, assemblée, éprouvée et construite sur les trois
+# plateformes.
+#
+# Raison d'être : l'application embarque un Node, le harness compilé et le
+# dashboard (`apps/desktop/scripts/stage.mjs`), et rien de cela n'est commun
+# aux trois systèmes — le binaire de Node, le lanceur (`harness` ou
+# `harness.cmd`), le format du bundle. Sur le poste de l'auteur, seul macOS a
+# tourné, et avec un Node qui ne pouvait pas être embarqué (Homebrew).
+#
+# Deux preuves par système :
+#  1. `test:standalone` assemble l'arbre avec le Node de `actions/setup-node`
+#     — l'officiel, donc **copié**, pas lié — et le lance par son lanceur,
+#     hors du clone : daemon de l'arbre, dashboard embarqué, commandes
+#     conseillées par le lanceur, aucun processus après `stop` ;
+#  2. le bundle se construit (`.app` et `.dmg`, `.deb`, installeur NSIS), et
+#     il est gardé en artefact.
+#
+# Ce que ce passage ne prouve **pas** : qu'un bundle installé s'ouvre. Aucun
+# poste de CI n'a d'écran. Les bundles ne sont **pas signés** (macOS : ad hoc
+# seulement) : un utilisateur doit les autoriser à la main.
+name: Application autonome
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - '!apps/desktop/**.md'
+      - 'tests/standalone.ts'
+      - '.github/workflows/bundle.yml'
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'tests/standalone.ts'
+      - '.github/workflows/bundle.yml'
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm }
+      # Les bibliothèques de WebKitGTK et ce que Tauri lie sous Linux.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev build-essential
+      - run: npm ci
+      - id: build
+        run: npm run build
+      - name: test:standalone
+        run: npm run test:standalone
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: bundle-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+      # Le Node de setup-node est l'officiel : l'assemblage le copie, sans rien
+      # télécharger. `--skip-build` : les paquets viennent d'être compilés.
+      - name: Bundle
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run desktop:bundle -- --skip-build
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: midgaard-${{ runner.os }}-${{ runner.arch }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe

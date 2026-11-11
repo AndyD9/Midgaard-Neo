@@ -147,7 +147,9 @@ export async function ensureDaemon(config: HarnessConfig, log: (...a: unknown[])
   // il rendrait `homeIsExplicit` vrai dans le daemon, et chaque conseil
   // redirait `--home` pour le dossier par défaut.
   const env = config.homeIsExplicit ? { ...process.env, MIDGAARD_HOME: config.home } : process.env
-  spawn(process.execPath, args, { detached: true, stdio: ['ignore', out, out], env }).unref()
+  // `windowsHide` : lancé par l'application desktop, qui n'a pas de console,
+  // un fils détaché en ouvrirait une sous Windows.
+  spawn(process.execPath, args, { detached: true, stdio: ['ignore', out, out], env, windowsHide: true }).unref()
 
   const deadline = Date.now() + BOOT_MS
   while (Date.now() < deadline) {

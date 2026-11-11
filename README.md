@@ -57,11 +57,17 @@ les budgets et les coûts, le coffre des clés, les serveurs MCP des agents, le
 dashboard, une interface tout terminal (le flux d'un arbre de tâches, ses
 approbations, l'invite vers l'orchestrateur).
 
+L'**application autonome** se construit (`npm run desktop:bundle`) : un
+bundle qui embarque Node, le daemon et le dashboard, et ne demande rien
+d'autre à la machine. Constatée sous macOS ; construite en CI pour Linux et
+Windows, où elle n'a jamais été lancée.
+
 Ce qui n'est **pas** fait :
 
-- **L'application autonome.** La fenêtre desktop est une coque Tauri construite
-  depuis le clone : elle n'embarque ni Node, ni le daemon, ni le dashboard, et
-  n'est pas signée.
+- **La signature et la mise à jour de l'application.** Les bundles ne sont pas
+  signés (macOS : signature ad hoc seulement, sans notarisation), et une
+  nouvelle version se réinstalle à la main. Le navigateur des agents
+  (Chromium) n'est pas embarqué.
 
 ## Installer
 
@@ -129,7 +135,22 @@ npm run desktop:build  # une fois, et après chaque mise à jour du clone ou de 
 npm run desktop        # ouvre la fenêtre ; démarre le daemon au besoin
 ```
 
-Détail et garanties : [apps/desktop/README.md](apps/desktop/README.md).
+### L'application autonome
+
+Le même code, en bundle : Node, le daemon et le dashboard embarqués.
+
+```bash
+npm run desktop:bundle # assemble l'arbre embarqué, puis construit le bundle
+```
+
+Le bundle est dans `apps/desktop/src-tauri/target/release/bundle/` : `.app` et
+`.dmg` sous macOS, `.deb` sous Linux, installeur NSIS sous Windows. Il n'est
+**pas signé** : macOS demande de l'autoriser (clic droit → Ouvrir). Dans
+l'application, la CLI se lance par le lanceur embarqué, que le dashboard cite
+à la place de `npm run harness --`.
+
+Détail, garanties et ce qui n'a pas été constaté :
+[apps/desktop/README.md](apps/desktop/README.md).
 
 ## Commandes
 
@@ -167,6 +188,7 @@ Depuis la racine du dépôt. `npm run harness -- --help` donne la liste complèt
 | Suite | Contenu |
 |---|---|
 | `npm run test:ui` | Le dashboard dans un vrai navigateur ; il lui faut `npm run build` |
+| `npm run test:standalone` | L'arbre embarqué de l'application autonome, assemblé puis lancé hors du clone ; il lui faut `npm run build` |
 | `npm run test:vault` | Les coffres seuls, sur le coffre **réel de la machine** |
 | `npm run test:live` | Essai contre un vrai fournisseur — **dépense de l'argent**, s'abstient sans clé |
 

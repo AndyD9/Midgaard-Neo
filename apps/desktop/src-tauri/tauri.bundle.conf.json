@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "category": "DeveloperTool",
+    "shortDescription": "Harness local d'agents",
+    "longDescription": "Midgaard : un orchestrateur délègue à des agents exécutants, observés et soumis à approbation humaine. Application autonome : Node, le daemon et le dashboard sont embarqués.",
+    "resources": {
+      "runtime/": "runtime/"
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "13.5"
+    }
+  }
+}

@@ -1,9 +1,10 @@
 /**
- * @file `harness desktop` (Slice 6, étape 7) : ouvre la coque desktop, la
- * fenêtre Tauri du dashboard.
+ * @file `harness desktop` : ouvre la coque desktop d'un clone, la fenêtre
+ * Tauri du dashboard.
  *
  * La coque se construit depuis le clone par `npm run desktop:build` — Rust
- * requis, rien n'est distribué (décision du 2026-11-01). Cette commande la
+ * requis. (L'application autonome, `npm run desktop:bundle`, s'ouvre
+ * elle-même : cette commande n'y a pas d'objet, et le dit.) Cette commande la
  * lance en lui passant **le `node` qui tourne en ce moment** et la racine du
  * clone : la coque démarre alors le daemon par la même CLI, et vise le même
  * dossier runtime (`--home` compris). Lancée d'un double-clic, elle se sert de
@@ -48,6 +49,12 @@ export function cargoVersion(): string | null {
  * @returns son code de sortie ; `1` si elle n'est pas construite
  */
 export async function desktop(config: HarnessConfig): Promise<number> {
+  if (config.launcher) {
+    // Dans l'application autonome il n'y a ni clone ni `cargo` : conseiller
+    // `npm run desktop:build` serait décrire ce qui n'existe pas.
+    console.error('Cette commande ouvre la coque d\'un clone. Ici, la fenêtre est l\'application Midgaard elle-même : ouvre-la.')
+    return 1
+  }
   const root = repoRoot()
   const binary = desktopBinary(root)
   if (!existsSync(binary)) {

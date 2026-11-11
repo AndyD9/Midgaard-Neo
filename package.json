@@ -24,6 +24,7 @@
     "desktop:build": "cargo build --release --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "test:desktop": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "desktop:stage": "node apps/desktop/scripts/stage.mjs",
+    "desktop:bundle": "node apps/desktop/scripts/bundle.mjs",
     "test:standalone": "node --conditions=midgaard-dev tests/standalone.ts",
     "daemon": "node --conditions=midgaard-dev packages/daemon/src/main.ts",
     "dashboard:dev": "npm run dev --workspace @midgaard/dashboard",
@@ -44,6 +45,7 @@
     "test:live-vision": "node --conditions=midgaard-dev tests/live-vision.ts"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^24.19.2",
     "playwright": "^1.64.1",
     "typescript": "^7.0.2"

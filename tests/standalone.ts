@@ -71,7 +71,8 @@ function harness(...args: string[]): { status: number | null; out: string } {
   delete env.MIDGAARD_DASHBOARD_DIR
   delete env.NODE_OPTIONS
   // Un `.cmd` ne se lance qu'à travers un shell.
-  const r = spawnSync(launcher, ['--home', home, ...args], { cwd: elsewhere, env, encoding: 'utf8', shell: WINDOWS })
+  // …et à travers un shell, un chemin qui porte une espace se cite.
+  const r = spawnSync(WINDOWS ? `"${launcher}"` : launcher, ['--home', home, ...args], { cwd: elsewhere, env, encoding: 'utf8', shell: WINDOWS })
   return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
 }
 

@@ -1,15 +1,31 @@
 <!doctype html>
 <!--
-  Page embarquée par Tauri, et jamais affichée : la coque ouvre sa fenêtre sur
-  le dashboard du daemon (http://127.0.0.1:<port>/). Tauri exige un dossier
-  d'interface ; celui-ci ne contient que ce rappel.
+  Page embarquée par Tauri. La coque ouvre sa fenêtre sur le dashboard du
+  daemon (http://127.0.0.1:<port>/) ; cette page n'apparaît que si le daemon
+  n'a pas pu démarrer, pour dire pourquoi. La coque pose le message dans
+  `window.__MIDGAARD_ERROR__` avant le chargement ; il est affiché comme du
+  texte (`textContent`), jamais interprété : il cite la sortie de la CLI.
+  La page n'a aucune capacité Tauri et ne charge rien.
 -->
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
     <title>Midgaard</title>
+    <style>
+      body { margin: 0; padding: 2rem; background: #14161c; color: #e8e9ed; font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+      h1 { margin: 0 0 1rem; font-size: 1rem; color: #f0766b; }
+      pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+      p { color: #9a9daa; }
+    </style>
   </head>
   <body>
-    <p>Le dashboard de Midgaard est servi par son daemon.</p>
+    <h1>Midgaard n'a pas pu démarrer</h1>
+    <pre id="message">Le dashboard de Midgaard est servi par son daemon.</pre>
+    <p>Le journal du daemon est dans le dossier runtime (<code>~/.midgaard/daemon.log</code> par défaut).</p>
+    <script>
+      if (typeof window.__MIDGAARD_ERROR__ === 'string') {
+        document.getElementById('message').textContent = window.__MIDGAARD_ERROR__
+      }
+    </script>
   </body>
 </html>
