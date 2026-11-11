@@ -21,7 +21,7 @@
  * de la machine qui les exécute.
  */
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,7 +37,7 @@ import {
   type RuntimeInfo,
 } from '@midgaard/contracts'
 import { checkMcpCommand, startDaemon, stderrExcerpt, type Daemon } from '@midgaard/daemon'
-import { absolutizeArgs, parseMcpAddArgs, readOnlyCandidates, resolveProgram } from '@midgaard/cli'
+import { absolutizeArgs, launchable, parseMcpAddArgs, readOnlyCandidates, resolveProgram } from '@midgaard/cli'
 
 const FAKE_SERVER = fileURLToPath(new URL('../fake-mcp-server.ts', import.meta.url))
 /** Une valeur secrète reconnaissable, assez longue pour l'expurgation (8 caractères au moins). */
@@ -274,6 +274,51 @@ describe('CLI', () => {
     assert.equal(resolveProgram(name, { PATH: dir, PATHEXT: '.EXE' }), join(dir, process.platform === 'win32' ? 'node.EXE' : 'node'))
     assert.equal(resolveProgram(name, { PATH: '.', PATHEXT: '.EXE' }), null, 'une entrée relative est ignorée')
     assert.equal(resolveProgram(process.execPath, {}), process.execPath)
+  })
+
+  it('Windows : jamais le nom nu, et un raccourci npm est déplié en « node script »', () => {
+    // La règle Windows se vérifie depuis n'importe quel poste : la plateforme
+    // est injectée, et les fichiers sont ceux que `npm install --global` pose.
+    const bin = mkdtempSync(join(tmpdir(), 'midgaard-shim-'))
+    try {
+      const script = join(bin, 'node_modules', 'rea-agents', 'scripts', 'rea.mjs')
+      mkdirSync(join(script, '..'), { recursive: true })
+      writeFileSync(script, '// serveur\n')
+      // Le trio de npm : un script `sh` sans extension, le `.cmd`, le `.ps1`.
+      writeFileSync(join(bin, 'rea'), '#!/bin/sh\nexec node "$basedir/node_modules/rea-agents/scripts/rea.mjs" "$@"\n')
+      writeFileSync(
+        join(bin, 'rea.cmd'),
+        '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\r\n' +
+          'IF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\n\r\n' +
+          'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\rea-agents\\scripts\\rea.mjs" %*\r\n',
+      )
+      writeFileSync(join(bin, 'autre.cmd'), '@echo off\r\npython -m serveur %*\r\n')
+      const nodeDir = mkdtempSync(join(tmpdir(), 'midgaard-node-'))
+      writeFileSync(join(nodeDir, 'node.exe'), '')
+      // Extensions en minuscules : le test vaut aussi sur un disque sensible à la casse.
+      const env = { PATH: `${bin};${nodeDir}`, PATHEXT: '.com;.exe;.bat;.cmd' }
+
+      // Le script `sh` sans extension n'est pas « le programme ».
+      const resolved = resolveProgram('rea', env, 'win32')
+      assert.equal(resolved, join(bin, 'rea.cmd'))
+
+      const launch = launchable(resolved!, ['mcp'], env, 'win32')
+      assert.deepEqual(launch, { command: join(nodeDir, 'node.exe'), args: [script, 'mcp'], unwrapped: resolved })
+
+      // Un Node posé à côté du raccourci passe avant celui du PATH, comme le raccourci le ferait.
+      writeFileSync(join(bin, 'node.exe'), '')
+      const beside = launchable(resolved!, ['mcp'], env, 'win32')
+      assert.ok(!('error' in beside) && beside.command === join(bin, 'node.exe'))
+
+      // Un `.cmd` quelconque est refusé avec son motif, pas déclaré pour échouer plus tard.
+      const other = launchable(join(bin, 'autre.cmd'), [], env, 'win32')
+      assert.ok('error' in other && /sans shell/.test(other.error))
+      // Hors Windows, rien n'est touché.
+      assert.deepEqual(launchable(join(bin, 'autre.cmd'), ['x'], env, 'linux'), { command: join(bin, 'autre.cmd'), args: ['x'] })
+      rmSync(nodeDir, { recursive: true, force: true })
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+    }
   })
 
   it('rend absolu un argument qui désigne un fichier du dossier courant', () => {

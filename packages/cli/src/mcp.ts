@@ -22,8 +22,8 @@
  * test, projet de la tâche ensuite), et `node ./rea.mjs` n'y trouverait rien —
  * constaté au premier essai de la CLI.
  */
-import { accessSync, constants, existsSync, statSync } from 'node:fs'
-import { delimiter, isAbsolute, join, resolve } from 'node:path'
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { daemonJson, type Agent, type HarnessConfig, type McpCatalogEntry, type McpServerView } from '@midgaard/contracts'
 import { ensureDaemon } from './daemon-client.ts'
 import { readSecret } from './secret-input.ts'
@@ -105,15 +105,81 @@ export function resolveProgram(program: string, env: NodeJS.ProcessEnv, platform
     const full = join(process.cwd(), program)
     return runnable(full) ? full : null
   }
-  const exts = platform === 'win32' ? ['', ...(env.PATHEXT ?? '.EXE;.COM').split(';').filter(Boolean)] : ['']
+  // Sous Windows, jamais le nom nu — la règle d'`exec` (`candidateNames`,
+  // paquet `tools`, dont la CLI ne dépend pas) : npm pose à côté de `rea.cmd`
+  // un `rea` sans extension, un script `sh` que Windows n'exécute pas. Le
+  // chercher d'abord le « trouvait », et le serveur ne démarrait pas.
+  const exts = (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  const names =
+    platform !== 'win32' || exts.some((e) => program.toLowerCase().endsWith(e.toLowerCase()))
+      ? [program]
+      : exts.map((e) => program + e)
   for (const dir of (env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : delimiter)) {
     if (!dir || !isAbsolute(dir)) continue
-    for (const ext of exts) {
-      const candidate = join(dir, program + ext)
+    for (const name of names) {
+      const candidate = join(dir, name)
       if (runnable(candidate)) return candidate
     }
   }
   return null
+}
+
+/** Taille maximale lue d'un raccourci `.cmd` : ceux de npm font quelques centaines d'octets. */
+const MAX_SHIM_BYTES = 16 * 1024
+
+/**
+ * Le programme d'un serveur, **tel que le daemon pourra le lancer**.
+ *
+ * Sous Windows, `npm install --global` ne pose pas un programme mais un
+ * raccourci `.cmd`, et le daemon lance un serveur **sans shell** : Node refuse
+ * alors un `.cmd` (CVE-2024-27980), et le lancer par `cmd.exe` exposerait ses
+ * arguments à des règles d'échappement qu'on ne maîtrise pas. Le raccourci de
+ * npm ne fait qu'une chose — lancer Node sur un script — et le dit en clair :
+ * on le **déplie** donc en `node <script>`, ce que l'humain voit avant que la
+ * déclaration parte.
+ *
+ * Un `.cmd` qui n'est pas un raccourci de npm est **refusé avec son motif** :
+ * le déclarer donnerait un serveur qui ne démarre jamais (« did not complete
+ * the MCP handshake »), une erreur qui ne dit pas quoi faire.
+ *
+ * @param command  programme déjà résolu, absolu ({@link resolveProgram})
+ * @param args     arguments du serveur
+ * @param env      environnement du terminal, pour trouver `node`
+ * @param platform injecté pour que la règle Windows se vérifie depuis un Mac
+ * @returns la commande à déclarer, `unwrapped` disant d'où elle vient si elle
+ *          a été dépliée, ou la raison du refus
+ */
+export function launchable(
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[]; unwrapped?: string } | { error: string } {
+  if (platform !== 'win32' || !/\.(cmd|bat)$/i.test(command)) return { command, args: [...args] }
+  let text = ''
+  try {
+    text = readFileSync(command).subarray(0, MAX_SHIM_BYTES).toString('utf8')
+  } catch {
+    // Illisible : traité comme un script quelconque, donc refusé plus bas.
+  }
+  // La dernière ligne d'un raccourci npm, sous ses deux formes :
+  //   "%_prog%"  "%dp0%\node_modules\paquet\script.mjs" %*
+  //   "%~dp0\node.exe"  "%~dp0\node_modules\paquet\script.js" %*
+  const shim = /(?:"%_prog%"|node(?:\.exe)?"?)\s+"%(?:dp0%|~dp0)\\([^"%]+\.(?:[cm]?js))"\s+%\*/i.exec(text)
+  const script = shim ? join(dirname(command), ...shim[1]!.split('\\')) : null
+  if (!script || !existsSync(script)) {
+    return {
+      error:
+        `${command} est un script de commandes Windows, que le daemon ne peut pas lancer sans shell. ` +
+        'Déclare le programme qu\'il lance — par exemple « node » suivi du chemin du script',
+    }
+  }
+  // Le Node posé à côté du raccourci s'il y en a un, comme le raccourci le
+  // ferait ; sinon celui du `PATH`.
+  const beside = join(dirname(command), 'node.exe')
+  const node = existsSync(beside) ? beside : resolveProgram('node', env, platform)
+  if (!node) return { error: `${command} lance un script Node, et « node » est introuvable dans le PATH` }
+  return { command: node, args: [script, ...args], unwrapped: command }
 }
 
 /**
@@ -227,14 +293,24 @@ async function add(config: HarnessConfig, args: string[]): Promise<number> {
     return 1
   }
   const [program, ...programArgs] = parsed.argv as [string, ...string[]]
-  const command = resolveProgram(program, process.env)
-  if (!command) {
+  const resolved = resolveProgram(program, process.env)
+  if (!resolved) {
     console.error(`${red('✘')} programme introuvable ou non exécutable : ${program}`)
     return 1
   }
-  if (command !== program) console.log(dim(`programme résolu : ${command}`))
   const absolute = absolutizeArgs(programArgs, process.cwd())
   for (const [from, to] of absolute.changed) console.log(dim(`argument rendu absolu : ${from} → ${to}`))
+  // Les arguments sont rendus absolus avant : un raccourci déplié place son
+  // script en tête, déjà absolu.
+  const launch = launchable(resolved, absolute.args, process.env)
+  if ('error' in launch) {
+    console.error(`${red('✘')} ${launch.error}.`)
+    return 1
+  }
+  const command = launch.command
+  if (launch.unwrapped) {
+    console.log(dim(`raccourci npm déplié : ${launch.unwrapped} → ${command} ${launch.args[0]}`))
+  } else if (command !== program) console.log(dim(`programme résolu : ${command}`))
   if (Object.keys(parsed.env).length) {
     console.log(`${yellow('!')} les variables --env sont gardées ${bold('en clair')} en base ; un jeton va dans --secret-env.`)
   }
@@ -260,7 +336,7 @@ async function add(config: HarnessConfig, args: string[]): Promise<number> {
       id: parsed.id,
       ...(parsed.name ? { name: parsed.name } : {}),
       command,
-      args: absolute.args,
+      args: launch.args,
       env: parsed.env,
       secret_env: parsed.secretEnv,
       secrets,

@@ -109,6 +109,19 @@ trouvait pas son script. Un mot sans séparateur (`mcp`) reste un mot. La
 déclaration est **testée dans la foulée** : le serveur est lancé, son
 catalogue lu.
 
+**Sous Windows, un programme installé par `npm install --global` est un
+raccourci `.cmd`**, que le daemon ne peut pas lancer : il lance un serveur sans
+shell, et Node refuse alors un `.cmd`. `mcp add` ne cherche donc jamais le nom
+nu (npm pose aussi un `rea` sans extension, un script `sh`), et **déplie** le
+raccourci de npm en `node <script>` — c'est tout ce que ce raccourci fait, et
+la CLI l'affiche (`raccourci npm déplié : …`). `mcp add rea -- rea mcp` déclare
+ainsi `node …\node_modules\rea-agents\scripts\rea.mjs mcp`. Un `.cmd` qui
+n'est pas un raccourci de npm est refusé avec son motif. Auparavant la
+déclaration passait et le serveur échouait ensuite sur « did not complete the
+MCP handshake », sans dire quoi faire. Vérifié depuis macOS avec les fichiers
+que npm pose et la plateforme injectée (`tests/unit/mcp-servers.test.ts`) ;
+**jamais lancé sur un vrai Windows**.
+
 Une valeur secrète (`--secret-env NOM`) est saisie sans écho et part au
 coffre ; une variable `--env` est gardée **en clair**, et la CLI le dit.
 
