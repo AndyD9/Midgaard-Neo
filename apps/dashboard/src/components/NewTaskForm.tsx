@@ -11,6 +11,11 @@
  *  - **le dossier de projet est vérifié par le daemon**, pas ici : il existe,
  *    c'est un dossier, et ce n'est ni `/` ni le dossier personnel. Le formulaire
  *    affiche le motif du refus tel que le daemon l'écrit ;
+ *  - **« Parcourir… » ouvre l'explorateur du système, par le daemon** : une
+ *    page web ne reçoit jamais le chemin absolu d'un dossier, et la coque
+ *    desktop n'accorde aucune capacité à la page. Le bouton n'existe que si le
+ *    daemon annonce son sélecteur (`health.directory_picker`) ; le champ reste
+ *    saisissable dans tous les cas ;
  *  - **aucune limite n'est annoncée, parce qu'il n'y en a plus** : le
  *    formulaire dit qu'une tâche tourne jusqu'à son résultat, une annulation
  *    ou un refus du fournisseur — c'est à savoir avant de lancer.
@@ -20,9 +25,9 @@
  * page fonctionne sans lui.
  */
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Play } from 'lucide-react'
+import { FolderOpen, Play } from 'lucide-react'
 import type { Agent, ProviderConfig } from '@midgaard/contracts'
-import { ApiError, createTask, fetchAgents, fetchProviders } from '@/lib/api'
+import { ApiError, createTask, fetchAgents, fetchProviders, pickDirectory } from '@/lib/api'
 import { disabledReason } from '@/lib/agents'
 import { formatCost } from '@/lib/utils'
 import { Button } from './ui/button'
@@ -54,7 +59,18 @@ const FIELD =
   'w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none ' +
   'focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50'
 
-export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void }) {
+/**
+ * @param onCreated        appelé avec l'identifiant de la tâche créée
+ * @param canPickDirectory vrai si le daemon annonce son sélecteur de dossier :
+ *                         sans cela, aucun bouton « Parcourir… » n'est montré
+ */
+export function NewTaskForm({
+  onCreated,
+  canPickDirectory = false,
+}: {
+  onCreated: (taskId: string) => void
+  canPickDirectory?: boolean
+}) {
   const [agents, setAgents] = useState<Agent[] | null>(null)
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -67,6 +83,27 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
   const [conversation, setConversation] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Vrai pendant que le dialogue du système est ouvert : un seul à la fois.
+  const [picking, setPicking] = useState(false)
+  const [pickError, setPickError] = useState<string | null>(null)
+
+  /**
+   * Ouvre l'explorateur du système et range le dossier choisi dans le champ.
+   * Une annulation ne change rien ; un refus (dossier personnel, racine) est
+   * affiché sous le champ, avec la phrase du daemon.
+   */
+  async function browse(): Promise<void> {
+    setPicking(true)
+    setPickError(null)
+    try {
+      const picked = await pickDirectory(projectDir.trim())
+      if ('dir' in picked) setProjectDir(picked.dir)
+    } catch (err) {
+      setPickError(err instanceof ApiError && err.reason ? err.reason : `sélecteur indisponible : ${(err as Error).message}`)
+    } finally {
+      setPicking(false)
+    }
+  }
 
   useEffect(() => {
     let abandoned = false
@@ -202,21 +239,43 @@ export function NewTaskForm({ onCreated }: { onCreated: (taskId: string) => void
           </label>
 
           {needsDir && (
-            <label className="block space-y-1.5">
-              <span className="font-medium">Dossier du projet</span>
-              <input
-                className={`${FIELD} font-mono`}
-                value={projectDir}
-                onChange={(e) => setProjectDir(e.target.value)}
-                placeholder="/chemin/absolu/du/depot"
-                spellCheck={false}
-                data-testid="new-task-dir"
-              />
+            <div className="space-y-1.5">
+              <label className="font-medium" htmlFor="new-task-dir">
+                Dossier du projet
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="new-task-dir"
+                  className={`${FIELD} font-mono`}
+                  value={projectDir}
+                  onChange={(e) => setProjectDir(e.target.value)}
+                  placeholder="/chemin/absolu/du/depot"
+                  spellCheck={false}
+                  data-testid="new-task-dir"
+                />
+                {canPickDirectory && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void browse()}
+                    disabled={picking}
+                    data-testid="new-task-browse"
+                  >
+                    <FolderOpen /> {picking ? 'Explorateur ouvert…' : 'Parcourir…'}
+                  </Button>
+                )}
+              </div>
+              {pickError && (
+                <p className="text-xs text-danger" role="alert" data-testid="new-task-browse-error">
+                  {pickError}
+                </p>
+              )}
               <span className="block text-xs text-muted">
-                Chemin absolu. L'agent ne lira que ce dossier ; ni la racine du système ni ton dossier personnel
+                Chemin absolu{canPickDirectory ? ', ou choisi dans l\'explorateur' : ''}. L'agent ne lira que ce
+                dossier, et en reçoit l'arborescence dès le départ ; ni la racine du système ni ton dossier personnel
                 ne sont acceptés.
               </span>
-            </label>
+            </div>
           )}
 
           <label className="block space-y-1.5">

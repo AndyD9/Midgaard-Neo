@@ -23,6 +23,7 @@ desktop.
 | `browsers.ts` | Les sessions de navigateur des tâches (Slice 7) : une au plus par tâche, dernière capture en mémoire |
 | `files.ts` | Une image d'une tâche, en lecture seule, pour le fil du dashboard (Slice 7) |
 | `project-dir.ts` | `checkProjectDir` : le dossier de projet d'une tâche, vérifié avant de la créer |
+| `pick-directory.ts` | Le sélecteur de dossier du système, ouvert par le daemon à la demande du dashboard |
 | `installation.ts` | Dossier et version de ce daemon, pour reconnaître celui d'une autre installation |
 | `http.ts` | Routeur de l'API locale |
 | `ws.ts` | Diffusion temps réel et **reprise sans trou** après coupure |
@@ -164,6 +165,43 @@ arrivent déjà découpés, expurgés et plafonnés (`OutputBatcher`, dans
 reconnexion : un terminal rechargé retrouve ce qu'il avait. Prouvé par
 `tests/unit/exec-output.test.ts`, avec une vraie commande qui écrit une clé en
 deux fois.
+
+## Choisir le dossier d'une tâche dans l'explorateur
+
+`POST /api/dialogs/directory` ouvre le sélecteur de dossier **du système**, sur
+le poste du daemon, et rend le chemin choisi (`pick-directory.ts`). C'est le
+daemon qui l'ouvre, pas la page : un navigateur ne donne jamais le chemin
+absolu d'un dossier, et la coque desktop n'accorde aucune capacité Tauri à la
+page.
+
+| Plateforme | Dialogue |
+|---|---|
+| macOS | `osascript` (`choose folder`) |
+| Windows | PowerShell (`FolderBrowserDialog`) |
+| Linux | `zenity`, sinon `kdialog`, trouvés dans les entrées absolues du `PATH` ; rien sans `DISPLAY` ni `WAYLAND_DISPLAY` |
+
+- **Rien n'est lu ni listé** : le daemon n'apprend que le chemin que l'humain
+  a désigné. Aucune route ne parcourt le disque.
+- **Le chemin choisi est jugé comme un chemin tapé** (`checkProjectDir`) : le
+  dossier personnel ou la racine, choisis dans l'explorateur, sont refusés
+  (400, avec le motif).
+- **Le dossier de départ (`start_dir`) n'entre jamais dans un script** : il
+  voyage en argument (`argv` d'AppleScript, option de zenity) ou en variable
+  d'environnement (PowerShell).
+- **Un dialogue à la fois** (409 sinon), sans délai : l'humain décide quand il
+  a fini. Le dialogue est tué si le client part et à l'arrêt du daemon ; lancé
+  dans son propre groupe, il est confié à la garde des processus pour le cas
+  du daemon tué net.
+- **Annoncé seulement s'il existe** : `health.directory_picker` est vrai quand
+  un dialogue peut s'ouvrir ; sinon le journal du daemon dit pourquoi, la route
+  répond 501 avec le motif, et le dashboard ne montre pas « Parcourir… ».
+
+Prouvé par `tests/unit/pick-directory.test.ts` (commande des trois plateformes,
+faux programme de dialogue dont le pid est compté après l'abandon, route avec
+un sélecteur injecté). **Constaté sous macOS seulement, et en partie** : le
+vrai dialogue s'ouvre et se ferme à l'abandon ; un choix fait à la souris et
+la place de la fenêtre au premier plan n'ont pas été regardés. Les dialogues
+Windows et Linux n'ont jamais été lancés.
 
 ## Une image d'une tâche, en lecture seule (Slice 7)
 

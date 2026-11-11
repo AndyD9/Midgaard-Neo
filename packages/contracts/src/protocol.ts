@@ -161,6 +161,13 @@ export const healthSchema = z.object({
    * un daemon plus ancien du même protocole ne l'annonce pas.
    */
   harness_command: z.string().optional(),
+  /**
+   * Vrai si ce daemon peut ouvrir le sélecteur de dossier du système
+   * (`POST /api/dialogs/directory`). Le dashboard ne montre « Parcourir… » que
+   * dans ce cas ; facultatif, un daemon plus ancien du même protocole ne
+   * l'annonce pas, et n'a pas la route.
+   */
+  directory_picker: z.boolean().optional(),
 })
 export type Health = z.infer<typeof healthSchema>
 
@@ -199,6 +206,13 @@ export const createTaskRequestSchema = z.object({
   conversation: z.boolean().default(false),
 })
 export type CreateTaskRequest = z.infer<typeof createTaskRequestSchema>
+
+/**
+ * Réponse 200 de `POST /api/dialogs/directory` : le dossier que l'humain a
+ * choisi dans l'explorateur de son système, canonique et déjà vérifié, ou
+ * `cancelled` s'il a fermé le dialogue sans choisir.
+ */
+export type PickDirectoryResponse = { dir: string } | { cancelled: true }
 
 /**
  * Corps de `POST /api/tasks/:id/messages` (Slice 6) : le message de

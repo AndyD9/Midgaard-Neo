@@ -109,6 +109,16 @@ Les routes, par le fragment d'URL : `#/tasks/<id>` (le flux de la tâche ;
   affiche le motif d'un refus tel quel. Le dernier dossier saisi est retenu
   dans le `localStorage` de ce navigateur — commodité de ce seul poste, qui ne
   porte rien de ce qui doit durer, et dont la page se passe.
+- **« Parcourir… » ouvre l'explorateur du système** (Finder, Explorateur
+  Windows, zenity ou kdialog) : c'est le **daemon** qui ouvre le dialogue
+  (`POST /api/dialogs/directory`), parce qu'une page web ne reçoit jamais le
+  chemin absolu d'un dossier et que la coque desktop n'accorde aucune capacité
+  à la page. Le bouton n'existe que si le daemon annonce son sélecteur
+  (`health.directory_picker`) ; une annulation ne change rien, et un dossier
+  refusé (le dossier personnel, la racine) l'est avec la phrase du daemon. Le
+  champ reste saisissable dans tous les cas. L'agent reçoit l'arborescence du
+  dossier dès son premier message, et le lit lui-même pour comprendre le
+  projet. Rejoué par D23 (`test:ui`), avec un faux sélecteur.
 - **La vue « Profils » règle le fournisseur et le modèle** de chaque profil,
   par `PATCH /api/agents/:id`. **Aucune limite ne s'y règle** : il n'y en a
   plus, ni à l'écran ni dans l'API (D18).
@@ -171,7 +181,7 @@ qu'une suite qui rougit à chaque retouche de style.
 | `components/TaskInspector.tsx` | Lecture « détails » : état, résultat, erreur, diff, timeline |
 | `components/ApprovalPanel.tsx` | Le seul composant qui débloque une tâche ; montré sous le flux, dans les détails et au-dessus de la capture |
 | `components/Timeline.tsx` | Le journal, rendu lisible |
-| `components/NewTaskForm.tsx` | « Nouvelle tâche » : profils actifs seulement, dossier vérifié par le daemon |
+| `components/NewTaskForm.tsx` | « Nouvelle tâche » : profils actifs seulement, dossier saisi ou choisi dans l'explorateur (« Parcourir… »), vérifié par le daemon |
 | `components/AgentsCard.tsx` | Exécutants ; en vue « Profils », fournisseur et modèle de chacun |
 | `components/SubtasksCard.tsx` | Sous-tâches d'un orchestrateur, total de l'arbre et sa provenance, agents créés et leur rôle |
 | `components/ProvidersCard.tsx` | Fournisseurs : déclaration, clé déposée au coffre, test, retrait |

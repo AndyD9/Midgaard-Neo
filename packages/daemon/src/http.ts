@@ -19,6 +19,7 @@
  * | GET  | `/api/health` | Vivacité, version de protocole, compteurs | 200 |
  * | POST | `/api/tasks` | Crée une tâche ; `project_dir` vérifié (`checkProjectDir`) | 201, 400 |
  * | GET  | `/api/tasks?status=&limit=` | Liste les tâches | 200 |
+ * | POST | `/api/dialogs/directory` | Ouvre le sélecteur de dossier du système ; rend le dossier choisi, vérifié (`checkProjectDir`), ou `cancelled` | 200, 400, 409, 501 |
  * | GET  | `/api/tasks/:id` | État et consigne | 200, 404 |
  * | GET  | `/api/tasks/:id/wait?timeout_ms=&known_approval=` | Long-poll | 200, 404 |
  * | GET  | `/api/tasks/:id/events` | Timeline complète | 200, 404 |
@@ -104,6 +105,7 @@ import { execAllowFor, listWorkspaces, removeWorkspace, workspaceView } from './
 import { FileAccessError, taskImage } from './files.ts'
 import { setAgentMcpServers, updateAgentModel } from './agents.ts'
 import { checkProjectDir } from './project-dir.ts'
+import type { DirectoryPicker } from './pick-directory.ts'
 
 /** Taille maximale d'un corps de requête, contre l'épuisement mémoire. */
 const MAX_BODY_BYTES = 64 * 1024
@@ -131,7 +133,20 @@ export interface HttpDeps {
   config: HarnessConfig
   /** Sessions de navigateur des tâches (Slice 7) : l'humain peut en couper une. */
   browsers?: BrowserSessions | undefined
+  /**
+   * Sélecteur de dossier du système (`POST /api/dialogs/directory`). Absent,
+   * la route répond 501 : fermé par défaut, un routeur assemblé sans y penser
+   * n'ouvre aucune fenêtre.
+   */
+  pickDirectory?: DirectoryPicker | undefined
 }
+
+/**
+ * Vrai pendant qu'un dialogue de dossier est ouvert, par sélecteur. Un seul à
+ * la fois : deux fenêtres modales empilées, dont l'une cachée, laisseraient
+ * une requête attendre un humain qui ne la voit pas.
+ */
+const openDialogs = new WeakSet<DirectoryPicker>()
 
 /**
  * Envoie des octets — une image —, sans qu'ils puissent devenir une page.
@@ -232,6 +247,10 @@ export function createRequestHandler(deps: HttpDeps) {
       if (section === 'mcp') return handleMcp(deps, res, method, id, action, req)
       if (section === 'workspaces') return handleWorkspaces(deps, res, method, id, action, req)
       if (section === 'exec-allow') return handleExecAllow(deps, res, method, url, id, req)
+      if (section === 'dialogs' && id === 'directory' && !action) {
+        if (method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+        return handlePickDirectory(deps, res, req)
+      }
       if (section === 'pricing' && method === 'GET') {
         return send(res, 200, { pricing: deps.providers.pricing() })
       }
@@ -372,6 +391,47 @@ async function handleExecAllow(
   if (outcome === 'added') deps.log(`exec : « ${shown} » ajoutée sans approbation pour ${repoDir} par ${by}`)
   if (outcome === 'widened') deps.log(`exec : « ${argv.join(' ')} » élargie en préfixe « ${shown} » pour ${repoDir} par ${by}`)
   return send(res, 200, { ...(await execAllowFor(deps.store, deps.config, repoDir)), outcome })
+}
+
+/**
+ * `POST /api/dialogs/directory` : l'humain choisit un dossier dans
+ * l'explorateur de son système, et la route rend son chemin.
+ *
+ * La requête reste ouverte tant que le dialogue l'est — c'est l'humain qui
+ * décide quand il a fini. Si le client part (page fermée, rechargée), le
+ * dialogue est tué : personne ne lirait plus sa réponse. Le chemin choisi
+ * passe par `checkProjectDir`, comme un chemin tapé : choisir son dossier
+ * personnel dans le dialogue est refusé avec la même phrase.
+ *
+ * Aucune tâche n'est créée et rien n'est lu : le daemon n'apprend que le
+ * chemin que l'humain a désigné lui-même.
+ */
+async function handlePickDirectory(deps: HttpDeps, res: ServerResponse, req: IncomingMessage): Promise<void> {
+  const picker = deps.pickDirectory
+  const unavailable = picker ? picker.available() : 'ce daemon n\'a pas de sélecteur de dossier'
+  if (!picker || unavailable !== null) return send(res, 501, { error: 'picker_unavailable', reason: unavailable })
+  const body = await readJson(req)
+  const startDir = typeof body.start_dir === 'string' && body.start_dir.length <= 4096 ? body.start_dir : null
+  // Lu et posé sans `await` entre les deux : deux requêtes simultanées ne
+  // passent pas toutes les deux.
+  if (openDialogs.has(picker)) {
+    return send(res, 409, { error: 'dialog_open', reason: 'un sélecteur de dossier est déjà ouvert sur ce poste' })
+  }
+  openDialogs.add(picker)
+  const aborter = new AbortController()
+  res.on('close', () => {
+    if (!res.writableFinished) aborter.abort()
+  })
+  try {
+    const outcome = await picker.pick(startDir, aborter.signal)
+    if ('unavailable' in outcome) return send(res, 501, { error: 'picker_unavailable', reason: outcome.unavailable })
+    if ('cancelled' in outcome) return send(res, 200, { cancelled: true })
+    const checked = checkProjectDir(outcome.dir, deps.config.userHome)
+    if ('error' in checked) return send(res, 400, { error: 'invalid_project_dir', reason: checked.error })
+    return send(res, 200, { dir: checked.dir })
+  } finally {
+    openDialogs.delete(picker)
+  }
 }
 
 /** Routes `/api/tasks…`. */

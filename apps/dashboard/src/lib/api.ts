@@ -18,6 +18,7 @@ import type {
   Health,
   McpServerResponse,
   McpServersResponse,
+  PickDirectoryResponse,
   ConnectionTest,
   ProviderConfig,
   ProviderPreset,
@@ -320,4 +321,23 @@ export function closeBrowser(taskId: string): Promise<{ closed: true }> {
 export async function fetchTaskImage(taskId: string, path: string): Promise<{ blob: Blob; sha256: string | null }> {
   const { blob, headers } = await apiBytes(`/api/tasks/${taskId}/files/image?path=${encodeURIComponent(path)}`)
   return { blob, sha256: headers.get('x-midgaard-sha256') }
+}
+
+/**
+ * Ouvre le sélecteur de dossier du système, **sur le poste du daemon**, et
+ * attend le choix de l'humain : la requête dure autant que le dialogue.
+ *
+ * Une page web ne reçoit jamais le chemin absolu d'un dossier ; c'est donc le
+ * daemon, local, qui ouvre le dialogue et rend le chemin, canonique et déjà
+ * vérifié. À n'appeler que si le daemon l'annonce (`health.directory_picker`).
+ *
+ * @param startDir dossier où ouvrir le dialogue, s'il existe
+ * @throws {ApiError} si le dossier choisi est refusé (motif du daemon), si un
+ *         dialogue est déjà ouvert, ou si aucun ne peut s'ouvrir
+ */
+export function pickDirectory(startDir: string): Promise<PickDirectoryResponse> {
+  return api('/api/dialogs/directory', {
+    method: 'POST',
+    body: JSON.stringify(startDir ? { start_dir: startDir } : {}),
+  })
 }

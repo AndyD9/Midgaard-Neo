@@ -190,7 +190,7 @@ export function App() {
         <main className="flex min-w-0 flex-1 flex-col">
           {view.kind === 'new' ? (
             <Page title="nouvelle tâche">
-              <NewTaskForm onCreated={select} />
+              <NewTaskForm onCreated={select} canPickDirectory={state.health?.directory_picker === true} />
             </Page>
           ) : view.kind === 'agents' ? (
             <Page title="profils">

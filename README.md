@@ -115,7 +115,9 @@ npm run harness -- start   # démarre le daemon et affiche l'adresse du dashboar
 ```
 
 Dans le dashboard : « Nouvelle tâche », profil `orchestrator`, un objectif et
-le dossier du projet. L'orchestrateur délègue, la conversation se poursuit dans
+le dossier du projet — saisi, ou choisi dans l'explorateur du système par
+« Parcourir… ». L'agent reçoit l'arborescence de ce dossier et le lit lui-même
+pour comprendre de quoi il s'agit. L'orchestrateur délègue, la conversation se poursuit dans
 le chat, et chaque commande ou saisie sensible attend ton approbation — dans le
 dashboard, ou par `npm run harness -- approve`.
 

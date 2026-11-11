@@ -95,7 +95,7 @@ livrés : `orchestrator`, `researcher`, `developer`, `navigator`, et
 | `npm run test:developer` | ~45 s — le Developer dans un vrai daemon, face à un faux fournisseur ; crash et concurrence compris, liste blanche et préfixes `exec` |
 | `npm run test:orchestrator` | ~10 s — l'orchestrateur dans un vrai daemon : délégation parallèle, approbation d'un enfant, cascade, `SIGKILL`, conversation qui pilote une revue, `SIGKILL` pendant une attente |
 | `npm run test:security` | ~1 min — base et journal lus octet pour octet (conversation, questions, propositions et sortie en direct comprises), refus tracés, API sur la seule boucle locale ; le navigateur : saisie sans approbation, adresses privées, aucun Chromium après `SIGKILL`, aucune capture en base ; les serveurs MCP : outil non coché ou changé jamais reçu par le serveur, secret d'un serveur jamais persisté, exécutant créé borné, aucun serveur après `SIGKILL` (`npx playwright install chromium` au préalable) |
-| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur : direct, approbation, reconnexion, diff d'une tâche Developer, arbre d'un orchestrateur, flux (conversation, sortie des commandes, approbation), lecture « navigateur », rechargement d'une page plus vieille que son daemon, serveurs MCP aux Profils, aucune limite à régler, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs » (`npm run build` et `npx playwright install chromium` au préalable) |
+| `npm run test:ui` | ~1 min — le dashboard dans un vrai navigateur : direct, approbation, reconnexion, diff d'une tâche Developer, arbre d'un orchestrateur, flux (conversation, sortie des commandes, approbation), lecture « navigateur », rechargement d'une page plus vieille que son daemon, dossier choisi par « Parcourir… » (faux sélecteur), serveurs MCP aux Profils, aucune limite à régler, agents créés, clé d'un fournisseur déposée depuis la carte « Fournisseurs » (`npm run build` et `npx playwright install chromium` au préalable) |
 | `npm run test:desktop` | ~2 min la première fois — les tests Rust de la coque (adresse du dashboard, arbre embarqué entier, lanceur, `PATH` du shell) |
 | `npm run test:standalone` | ~15 s — l'arbre embarqué assemblé puis lancé par son lanceur, hors du clone : aucune source ni lien, daemon de l'arbre, dashboard embarqué, conseils par le lanceur, aucun processus après `stop` (`npm run build` au préalable) ; dit si le Node du poste n'est pas embarquable |
 | `npm run test:live` | Payant, opt-in — un vrai modèle, coût comparé au solde du fournisseur ; s'abstient sans clé au coffre |
@@ -257,6 +257,16 @@ Chacun a été appris à la dure ; le récit est dans `docs/SLICE0.md` à
   vaut pour le chemin demandé **et** pour le chemin réel — un lien posé dans le
   worktree vers `.git` reste sous la racine, et passait sans cette relecture.
   Aucune route n'écrit un fichier.
+- **Le dossier d'une tâche se choisit dans l'explorateur du système, ouvert
+  par le daemon** (`POST /api/dialogs/directory`, `daemon/src/pick-directory.ts`),
+  jamais par une capacité accordée à la page ni par une route qui listerait le
+  disque : le daemon n'apprend que le chemin que l'humain a désigné, et le juge
+  comme un chemin tapé (`checkProjectDir`). Le dossier de départ envoyé par le
+  client n'entre jamais dans le texte d'un script (argument ou variable
+  d'environnement). Un dialogue à la fois, tué si le client part ; annoncé
+  (`health.directory_picker`) seulement s'il peut s'ouvrir. **Un daemon de
+  test reçoit un faux sélecteur** (`StartOptions.pickDirectory`) : aucune suite
+  n'ouvre une fenêtre sur l'écran de qui la lance.
 - **On n'écrit que dans un worktree, jamais sous `.git`, jamais dans un
   sous-module.** Sans `ToolContext.writable`, les outils d'écriture
   **refusent** — pas d'approbation à la place. Dans un worktree, `.git` est un
@@ -401,3 +411,8 @@ Rien ne doit être écrit comme si ça l'avait été :
    ni ouverts ; `harness.cmd` n'a jamais tourné. Sous macOS, le `.app` a été
    lancé et son daemon interrogé, mais la fenêtre n'a pas été regardée, et
    aucune installation par le `.dmg` n'a été faite.
+5. **Le sélecteur de dossier réel, au-delà de son ouverture sous macOS.** Le
+   dialogue `osascript` a été ouvert puis tué à l'abandon ; un dossier choisi
+   à la souris, et la fenêtre au premier plan, n'ont pas été regardés. Les
+   dialogues Windows (PowerShell) et Linux (zenity, kdialog) n'ont jamais été
+   lancés.

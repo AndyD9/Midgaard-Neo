@@ -47,6 +47,7 @@ import { McpSessions } from './mcp-sessions.ts'
 import type { HostGuard } from '@midgaard/browser'
 import type { ProviderServiceDeps } from './providers.ts'
 import { createRequestHandler } from './http.ts'
+import { systemDirectoryPicker, type DirectoryPicker } from './pick-directory.ts'
 import { acquireLock, readLockPid, releaseLock, tryCreateLock } from './lock.ts'
 import { securityContext, type SecurityContext } from './security.ts'
 import { StaticFiles } from './static-files.ts'
@@ -116,6 +117,12 @@ export interface StartOptions {
    * `main.ts` ne la pose jamais, et le daemon prend alors la vraie.
    */
   browserGuard?: HostGuard | undefined
+  /**
+   * Sélecteur de dossier (`POST /api/dialogs/directory`). Par défaut, celui du
+   * système. Les tests passent le leur : un daemon de test ne doit jamais
+   * ouvrir une fenêtre sur l'écran de qui lance la suite.
+   */
+  pickDirectory?: DirectoryPicker | undefined
 }
 
 /**
@@ -218,6 +225,14 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
     lastActivity = Date.now()
   }
 
+  // Le sélecteur de dossier du système. Sa disponibilité est mesurée une fois :
+  // la plateforme et les programmes installés ne changent pas sous un daemon.
+  const pickDirectory =
+    options.pickDirectory ??
+    systemDirectoryPicker({ platform: process.platform, env: options.env ?? {}, log: (m) => log(m) })
+  const pickerUnavailable = pickDirectory.available()
+  if (pickerUnavailable !== null) log(`sélecteur de dossier indisponible : ${pickerUnavailable}`)
+
   const dashboardUrl = () => (files.available ? `http://127.0.0.1:${port}/` : null)
 
   // Calculée une fois : le dossier et la version ne changent pas pendant la vie
@@ -245,6 +260,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
       home: config.homeIsExplicit ? config.home : null,
       launcher: config.launcher,
     }).trimEnd(),
+    directory_picker: pickerUnavailable === null,
   })
 
   const stream = new EventStream({ store, bus, security: () => security, health, log, touch })
@@ -265,6 +281,7 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
       bus,
       config,
       browsers,
+      pickDirectory,
     }),
   )
   stream.attach(server)

@@ -68,6 +68,12 @@
  *    commence par l'objectif et rejoue le journal en lignes, porte l'invite
  *    vers l'orchestrateur ; « détails » se lit à la demande, `#/terminal/<id>`
  *    ramène au flux, et rien de l'atelier d'origine ne reste.
+ *  - D23 **« Parcourir… » range dans le champ le dossier choisi dans
+ *    l'explorateur** : le bouton n'existe que si le daemon annonce son
+ *    sélecteur, une annulation ne change rien, un dossier refusé l'est avec
+ *    la phrase du daemon, et la tâche lancée lit bien le dossier choisi. Sur
+ *    un second daemon, dans ce processus, pour lui passer un faux sélecteur :
+ *    aucune fenêtre ne s'ouvre sur l'écran de qui lance la suite.
  *
  * Playwright est employé en **bibliothèque**, pas en lanceur : les suites de ce
  * dépôt ont leur forme (`scenario`, `summarize`, verdicts), et ajouter un second
@@ -83,7 +89,10 @@ import { chromium, type Browser, type ConsoleMessage, type Page } from 'playwrig
 import {
   daemonJson, pidAlive, readRuntime, type Agent, type Approval, type ProviderConfig, type RuntimeInfo, type Task, type TaskView,
 } from '@midgaard/contracts'
-import { NAVIGATOR_AGENT_ID, StaticFiles, defaultDashboardDir, reconcileAgents, startDaemon as startInProcess } from '@midgaard/daemon'
+import {
+  NAVIGATOR_AGENT_ID, StaticFiles, defaultDashboardDir, reconcileAgents, startDaemon as startInProcess,
+  type PickOutcome,
+} from '@midgaard/daemon'
 import { assertPublicHost } from '@midgaard/tools'
 import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
@@ -1106,6 +1115,92 @@ await scenario(outcomes, 'D22 le flux est la vue par défaut, détails à la dem
   }
   if ((await page.locator('.xterm').count()) > 0) return { verdict: 'FAIL', detail: 'un terminal xterm est encore monté' }
   return { verdict: 'PASS', detail: 'flux par défaut, objectif en tête, invite présente, détails et retour, atelier absent' }
+})
+
+await scenario(outcomes, 'D23 « Parcourir… » range le dossier choisi dans le champ', async () => {
+  const provider = await startFakeProvider()
+  const { repo, dispose } = makeRepo({ 'README.md': '# Projet\n' })
+  const second = tempHome('ui-parcourir')
+  // Ce que le faux explorateur « rend » au prochain clic, et où il a été ouvert.
+  let outcome: PickOutcome = { cancelled: true }
+  const opened: (string | null)[] = []
+  const picking = await startInProcess(second.config, {
+    log: () => {},
+    env: { MIDGAARD_VAULT: 'file', MIDGAARD_PROVIDER_API_KEY: 'sk-faux-parcourir' },
+    pickDirectory: {
+      available: () => null,
+      pick: async (startDir) => {
+        opened.push(startDir)
+        return outcome
+      },
+    },
+  })
+  try {
+    if (!picking) return { verdict: 'FAIL', detail: 'second daemon non démarré' }
+    const rt2 = readRuntime(second.config.runtimeFile)!
+    picking.store.upsertProvider({
+      id: 'faux', name: 'faux', kind: 'openai-compatible', preset: 'custom', baseUrl: provider.url,
+      defaultModel: 'faux-1', secretRef: null, webSearch: 'off',
+    })
+    reconcileAgents(picking.store)
+    provider.scripts.set('[D23]', [[{ tool: 'submit_result', args: { summary: 'lu' } }]])
+
+    await page.goto(`${rt2.dashboard_url}#/new`, { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('new-task-agent').waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    await page.getByTestId('new-task-agent').selectOption('researcher')
+    const browse = page.getByTestId('new-task-browse')
+    const dir = page.getByTestId('new-task-dir')
+    try {
+      await browse.waitFor({ state: 'visible', timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'pas de bouton « Parcourir… » alors que le daemon annonce son sélecteur' }
+    }
+
+    // 1. Une annulation ne change rien au champ.
+    await dir.fill('/saisi/a/la/main')
+    await browse.click()
+    if (!(await until(async () => opened.length === 1))) return { verdict: 'FAIL', detail: 'le clic n’a ouvert aucun dialogue' }
+    if (opened[0] !== '/saisi/a/la/main') return { verdict: 'FAIL', detail: `dialogue ouvert sur ${String(opened[0])}` }
+    await browse.getByText('Parcourir…').waitFor({ timeout: UI_TIMEOUT })
+    if ((await dir.inputValue()) !== '/saisi/a/la/main') return { verdict: 'FAIL', detail: 'une annulation a changé le champ' }
+
+    // 2. Un dossier refusé l'est avec la phrase du daemon, et le champ reste.
+    outcome = { dir: second.config.userHome }
+    await browse.click()
+    try {
+      await page.getByTestId('new-task-browse-error').getByText(/dossier personnel/).waitFor({ timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'le dossier personnel choisi n’est pas refusé avec son motif' }
+    }
+    if ((await dir.inputValue()) !== '/saisi/a/la/main') return { verdict: 'FAIL', detail: 'un dossier refusé a été rangé dans le champ' }
+
+    // 3. Le dossier choisi arrive dans le champ, et la tâche lancée le lit.
+    outcome = { dir: repo }
+    await browse.click()
+    if (!(await until(async () => (await dir.inputValue()) === realpathSync.native(repo)))) {
+      return { verdict: 'FAIL', detail: `champ : « ${await dir.inputValue()} », attendu ${repo}` }
+    }
+    if ((await page.getByTestId('new-task-browse-error').count()) > 0) return { verdict: 'FAIL', detail: 'le refus précédent reste affiché' }
+    await page.getByTestId('new-task-objective').fill('[D23] lis le README')
+    await page.getByTestId('new-task-submit').click()
+    try {
+      await page.waitForURL(/#\/tasks\/[0-9a-f-]{36}$/, { timeout: UI_TIMEOUT })
+    } catch {
+      return { verdict: 'FAIL', detail: 'la tâche ne s’est pas lancée avec le dossier choisi' }
+    }
+    const id = page.url().split('/').pop()!
+    const task = (await daemonJson<TaskView>(rt2, `/api/tasks/${id}`)).body.task
+    if (task.project_dir !== realpathSync.native(repo)) return { verdict: 'FAIL', detail: `project_dir en base : ${String(task.project_dir)}` }
+    return { verdict: 'PASS', detail: 'annulation sans effet, refus motivé, dossier choisi rangé puis lu par la tâche' }
+  } finally {
+    picking?.close('fin de D23')
+    await picking?.stopped
+    // D7 attend la page sur le daemon principal.
+    await page.goto(rt.dashboard_url ?? '', { waitUntil: 'domcontentloaded' }).catch(() => {})
+    provider.server.close()
+    dispose()
+    second.cleanup()
+  }
 })
 
 await scenario(outcomes, 'D7 la perte de la WebSocket se voit, et le retour aussi', async () => {
