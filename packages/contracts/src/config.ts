@@ -99,6 +99,14 @@ export interface HarnessConfig {
   /** Dossier des fichiers compilés du dashboard ; `null` = emplacement par défaut du paquet. */
   dashboardDir: string | null
   /**
+   * Le lanceur de l'application autonome (`MIDGAARD_LAUNCHER`), déjà entre
+   * guillemets, ou `null` depuis un clone. Le script embarqué (`harness`,
+   * `harness.cmd`) et la coque desktop le posent ; les commandes conseillées
+   * l'emploient à la place de `npm run harness --`, qui n'existe pas là
+   * (`harnessCommand`).
+   */
+  launcher: string | null
+  /**
    * Ce que le harness fait d'un hôte absent de la liste blanche, quand un agent
    * appelle `http_fetch` :
    *  - `open` (défaut) : laisser passer tout hôte **public** ;
@@ -140,6 +148,7 @@ export interface ConfigEnv {
   MIDGAARD_APPROVAL_TTL_S?: string | undefined
   MIDGAARD_INPUT_TTL_S?: string | undefined
   MIDGAARD_DASHBOARD_DIR?: string | undefined
+  MIDGAARD_LAUNCHER?: string | undefined
   MIDGAARD_HTTP_POLICY?: string | undefined
   MIDGAARD_HTTP_ALLOW?: string | undefined
   MIDGAARD_EXEC_ALLOW?: string | undefined
@@ -215,6 +224,7 @@ export function loadConfig(env: ConfigEnv = {}, overrides: Partial<HarnessConfig
     waitSliceMs: 15_000,
     leaseMs: 1_000,
     dashboardDir: env.MIDGAARD_DASHBOARD_DIR ?? null,
+    launcher: env.MIDGAARD_LAUNCHER?.trim() || null,
     httpPolicy: parsePolicy(env.MIDGAARD_HTTP_POLICY),
     allowHosts: (env.MIDGAARD_HTTP_ALLOW ?? '')
       .split(',')

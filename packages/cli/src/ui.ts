@@ -56,8 +56,11 @@ export function humanDuration(ms: number): string {
  * @param args la commande, sans `harness`, par exemple `providers add venice`
  */
 export function cmd(args: string): string {
-  return harnessCommand(args, { home: adviceHome })
+  return harnessCommand(args, { home: adviceHome, launcher: adviceLauncher })
 }
+
+/** Lanceur de l'application autonome que les conseils emploient ; posé une fois par `main.ts`. */
+let adviceLauncher: string | null = null
 
 /** Dossier runtime que les conseils redisent ; posé une fois par `main.ts`. */
 let adviceHome: string | null = null
@@ -70,10 +73,12 @@ let adviceHome: string | null = null
  * `main.ts`, qui lit l'environnement, l'appelle — la règle « configuration
  * injectée, jamais lue au chargement » tient.
  *
- * @param home dossier désigné (`config.homeIsExplicit`), ou `null` pour `~/.midgaard`
+ * @param home     dossier désigné (`config.homeIsExplicit`), ou `null` pour `~/.midgaard`
+ * @param launcher lanceur de l'application autonome (`config.launcher`), ou `null` depuis un clone
  */
-export function setAdviceHome(home: string | null): void {
+export function setAdviceHome(home: string | null, launcher: string | null = null): void {
   adviceHome = home
+  adviceLauncher = launcher
 }
 
 /** Que faire quand le dashboard compilé manque : le compiler, depuis le dépôt. */

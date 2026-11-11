@@ -112,15 +112,18 @@ import type { EngineContext, TaskEngine, VisionVerdict } from './types.ts'
  * étape 7). Elle redit donc toute la déclaration, pour que la redéposer ne
  * change rien d'autre que la clé. Le daemon ne peut pas emprunter `cmd()` à la
  * CLI, qui dépend de lui : il emploie `harnessCommand`, commun aux trois. Lue au
- * dashboard ou relayée par Claude, donc hors du clone, elle porte la racine du
- * clone (`npm --prefix`) et, s'il est désigné, le dossier runtime.
+ * dashboard, donc hors du clone, elle porte la racine du clone
+ * (`npm --prefix`) et, s'il est désigné, le dossier runtime. Dans
+ * l'application autonome, elle passe par le lanceur embarqué.
  *
  * @param provider le fournisseur tel qu'il est déclaré
  * @param home     dossier runtime si désigné (`config.homeIsExplicit`), sinon `null`
+ * @param launcher lanceur de l'application autonome (`config.launcher`), sinon `null`
  */
 export function keyCommand(
   provider: Pick<ProviderConfig, 'id' | 'preset' | 'default_model' | 'base_url'>,
   home: string | null = null,
+  launcher: string | null = null,
 ): string {
   const args =
     `providers add ${provider.id} --preset ${provider.preset} --model ${provider.default_model}` +
@@ -128,7 +131,7 @@ export function keyCommand(
   // packages/daemon/{src,dist}/engines/agent.* → racine du clone : même
   // profondeur depuis les sources et depuis le build.
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..')
-  return harnessCommand(args, { repoRoot, home })
+  return harnessCommand(args, { repoRoot, home, launcher })
 }
 
 /** Ce que le moteur emprunte au daemon, en plus du contexte commun. */
@@ -665,7 +668,7 @@ export class AgentEngine implements TaskEngine {
       return {
         error:
           `aucune clé d'API pour « ${provider.id} » : dépose-la avec ` +
-          `\`${keyCommand(provider, ctx.config.homeIsExplicit ? ctx.config.home : null)}\`, ` +
+          `\`${keyCommand(provider, ctx.config.homeIsExplicit ? ctx.config.home : null, ctx.config.launcher)}\`, ` +
           `ou définis ${envVar} dans l'environnement du daemon`,
       }
     }

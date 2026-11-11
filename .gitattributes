@@ -1,0 +1,2 @@
+# Un .cmd se lit en CRLF : en LF, cmd.exe perd des lignes selon les versions.
+*.cmd text eol=crlf

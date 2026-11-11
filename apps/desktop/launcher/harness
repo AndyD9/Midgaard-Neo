@@ -1,0 +1,22 @@
+#!/bin/sh
+# Lanceur de la CLI dans l'application autonome (macOS, Linux).
+#
+# L'application n'a ni clone ni npm : `npm run harness -- …` n'y existe pas.
+# Ce script lance la CLI embarquée avec le Node embarqué, depuis n'importe
+# quel dossier. Il pose MIDGAARD_LAUNCHER — son propre chemin, entre
+# guillemets — pour que les commandes que la CLI et le daemon conseillent
+# passent par lui (`harnessCommand`), et MIDGAARD_DASHBOARD_DIR, le dashboard
+# embarqué, pour le daemon qu'une commande démarrerait.
+#
+# Disposition, posée par apps/desktop/scripts/stage.mjs :
+#   runtime/node                               le Node embarqué
+#   runtime/app/bin/harness                    ce script
+#   runtime/app/node_modules/@midgaard/cli     la CLI compilée
+#   runtime/app/dashboard                      le dashboard compilé
+#
+# `pwd -P` résout les liens : le chemin conseillé est celui du fichier réel.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
+MIDGAARD_LAUNCHER="\"$here/harness\""
+MIDGAARD_DASHBOARD_DIR="$here/../dashboard"
+export MIDGAARD_LAUNCHER MIDGAARD_DASHBOARD_DIR
+exec "$here/../../node" "$here/../node_modules/@midgaard/cli/dist/main.js" "$@"

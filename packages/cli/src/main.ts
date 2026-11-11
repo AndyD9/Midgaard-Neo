@@ -105,7 +105,7 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const config = loadConfig(home ? { ...process.env, MIDGAARD_HOME: home } : process.env)
-  setAdviceHome(config.homeIsExplicit ? config.home : null)
+  setAdviceHome(config.homeIsExplicit ? config.home : null, config.launcher)
 
   switch (command) {
     case 'start':

@@ -24,6 +24,8 @@
  * qu'elle a vu.
  */
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { chromium, type Browser, type BrowserContext, type BrowserServer, type Page } from 'playwright'
 import { assertPublicHost, BROWSER_KEYS, guardGroup, type BrowserKey } from '@midgaard/tools'
 import { startGuardedProxy, type GuardedProxy, type HostGuard, type ProxyRefusal } from './proxy.ts'
@@ -42,6 +44,22 @@ interface FocusTarget {
 declare const document: { activeElement: FocusTarget | null; body: unknown; documentElement: unknown }
 
 /** Taille de la fenêtre : celle d'un portable courant, lisible dans une capture. */
+/**
+ * La commande qui installe Chromium, prête à copier, pour **cette**
+ * installation : le Node qui tourne et le `cli.js` du Playwright qu'il a
+ * chargé, en chemins absolus.
+ *
+ * Elle disait `npx playwright install chromium`. Depuis un clone, c'est juste ;
+ * dans l'application autonome, il n'y a ni `npx` ni dossier où le lancer, et
+ * un `npx` tapé ailleurs installerait le Chromium d'une **autre** version de
+ * Playwright, que celle-ci ne trouverait pas. La forme absolue vaut dans les
+ * deux cas.
+ */
+export function chromiumInstallCommand(): string {
+  const cli = join(dirname(createRequire(import.meta.url).resolve('playwright/package.json')), 'cli.js')
+  return `"${process.execPath}" "${cli}" install chromium`
+}
+
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800 }
 /** Délai d'une navigation, en millisecondes. */
 export const NAVIGATION_TIMEOUT_MS = 30_000
@@ -139,7 +157,7 @@ export class BrowserSession {
     } catch (e) {
       await proxy.close()
       throw new BrowserError(
-        `Chromium could not start (${(e as Error).message.split('\n')[0]}). Install it once with: npx playwright install chromium`,
+        `Chromium could not start (${(e as Error).message.split('\n')[0]}). Install it once with: ${chromiumInstallCommand()}`,
       )
     }
     const pid = server.process().pid

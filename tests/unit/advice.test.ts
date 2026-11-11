@@ -36,6 +36,19 @@ describe('harnessCommand', () => {
     )
   })
 
+  it('dans l’application autonome, passe par le lanceur embarqué, jamais par npm', () => {
+    const launcher = '"/Applications/Midgaard.app/Contents/Resources/runtime/app/bin/harness"'
+    // `repoRoot` n'a plus de sens : il n'y a pas de clone, et le lanceur est absolu.
+    assert.equal(
+      harnessCommand('mcp add rea -- node rea.mjs', { launcher, repoRoot: '/x/Midgaard', home: '/x/runtime' }),
+      `${launcher} --home "/x/runtime" mcp add rea -- node rea.mjs`,
+    )
+    assert.doesNotMatch(harnessCommand('status', { launcher }), /npm/)
+    assert.equal(loadConfig({}).launcher, null)
+    assert.equal(loadConfig({ MIDGAARD_LAUNCHER: '  ' }).launcher, null, 'une variable vide n’est pas un lanceur')
+    assert.equal(loadConfig({ MIDGAARD_LAUNCHER: launcher }).launcher, launcher)
+  })
+
   it('ne double pas les barres obliques inverses d’un chemin Windows', () => {
     assert.equal(
       harnessCommand('approve a1', { repoRoot: 'C:\\Users\\me\\Midgaard' }),

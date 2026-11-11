@@ -20,17 +20,19 @@ import { useCallback, useEffect, useState } from 'react'
 import { PlugZap, RefreshCw, ShieldCheck } from 'lucide-react'
 import type { McpCatalogEntry, McpServerView } from '@midgaard/contracts'
 import { ApiError, allowMcpTools, fetchMcpServers, revokeMcpTools, testMcpServer } from '@/lib/api'
+import { useHarnessCommand } from '@/lib/advice'
 import { allowWarning, hintsOf, readOnlyCandidates } from '@/lib/mcp'
 import { formatDateTime } from '@/lib/utils'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Card, CardBody, CardHeader, CardTitle } from './ui/card'
 
-/** La commande qui déclare REA, à recopier dans un terminal, à la racine du dépôt. */
-const DECLARE_EXAMPLE = 'npm run harness -- mcp add rea -- node /chemin/vers/rea/scripts/rea.mjs mcp'
+/** Les arguments qui déclarent REA ; le début de la commande vient du daemon (`lib/advice.ts`). */
+const DECLARE_EXAMPLE = 'mcp add rea -- node /chemin/vers/rea/scripts/rea.mjs mcp'
 
 /** La carte des serveurs MCP, dans la vue « Profils ». */
 export function McpServersCard() {
+  const harness = useHarnessCommand()
   const [servers, setServers] = useState<McpServerView[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -57,17 +59,17 @@ export function McpServersCard() {
         {error && <p className="text-xs text-danger">{error}</p>}
         {servers?.length === 0 && (
           <p className="text-xs text-muted" data-testid="mcp-empty">
-            Aucun serveur MCP déclaré. Dans un terminal, à la racine du dépôt :{' '}
-            <code className="rounded bg-canvas px-1 font-mono">{DECLARE_EXAMPLE}</code>
+            Aucun serveur MCP déclaré. Pour en déclarer un, {harness.where} :{' '}
+            <code className="rounded bg-canvas px-1 font-mono">{harness.prefix} {DECLARE_EXAMPLE}</code>
           </p>
         )}
         {servers?.map((s) => <ServerBlock key={s.id} server={s} onChange={replace} />)}
         <p className="border-t border-border pt-3 text-xs text-muted">
-          Un serveur se déclare et se retire depuis un terminal, à la racine du dépôt (
-          <code className="font-mono">npm run harness -- mcp add</code>,{' '}
+          Un serveur se déclare et se retire {harness.where} (
+          <code className="font-mono">{harness.prefix} mcp add</code>,{' '}
           <code className="font-mono">mcp remove</code>) : son programme y est résolu par ton <code>PATH</code>, et une
           valeur secrète s'y saisit sans écho. Il se donne à un profil ci-dessus, ou par{' '}
-          <code className="font-mono">npm run harness -- mcp attach rea researcher</code>.
+          <code className="font-mono">{harness.prefix} mcp attach rea researcher</code>.
         </p>
       </CardBody>
     </Card>

@@ -1,11 +1,12 @@
 /**
  * @file Forme des commandes que Midgaard conseille à l'utilisateur.
  *
- * Midgaard ne s'installe que depuis un clone : aucune commande `harness` n'est
- * dans le `PATH`, tout passe par `npm run harness -- …` à la racine du clone.
- * La CLI, le daemon et le serveur MCP en conseillent tous ; la forme vit donc
- * ici, dans le seul paquet que les trois connaissent, au lieu d'être redite
- * dans chacun.
+ * Depuis un clone, aucune commande `harness` n'est dans le `PATH` : tout passe
+ * par `npm run harness -- …` à la racine du clone. Dans l'application
+ * autonome, il n'y a ni clone ni npm : la commande est le lanceur embarqué
+ * (`CommandTarget.launcher`). La CLI et le daemon en conseillent tous deux ;
+ * la forme vit donc ici, dans le seul paquet que les deux connaissent, au
+ * lieu d'être redite dans chacun.
  */
 
 /** Où la commande doit agir. */
@@ -28,6 +29,15 @@ export interface CommandTarget {
    * s'écrit pas pareil sous zsh, PowerShell et cmd.
    */
   home?: string | null | undefined
+  /**
+   * Le lanceur de l'application autonome, déjà entre guillemets
+   * (`HarnessConfig.launcher`) : un script embarqué qui lance la CLI avec le
+   * Node embarqué. Quand il est là, il **remplace** npm — il n'y a pas de
+   * clone, et `npm run harness` serait un conseil que personne ne peut lancer.
+   * C'est un chemin absolu : la commande se lit de n'importe où, `repoRoot`
+   * n'a plus de sens.
+   */
+  launcher?: string | null | undefined
 }
 
 /**
@@ -44,10 +54,12 @@ export interface CommandTarget {
  *
  * @param args   arguments de la CLI, par exemple `approve 3808490f-…`
  * @param target où la commande doit agir
- * @returns par exemple `npm --prefix "/x/Midgaard" run harness -- --home "/x/runtime" approve 38…`
+ * @returns par exemple `npm --prefix "/x/Midgaard" run harness -- --home "/x/runtime" approve 38…`,
+ *          ou, dans l'application autonome, `"/Applications/…/harness" approve 38…`
  */
 export function harnessCommand(args: string, target: CommandTarget = {}): string {
-  const npm = target.repoRoot ? `npm --prefix "${target.repoRoot}" run harness --` : 'npm run harness --'
   const home = target.home ? ` --home "${target.home}"` : ''
+  if (target.launcher) return `${target.launcher}${home} ${args}`
+  const npm = target.repoRoot ? `npm --prefix "${target.repoRoot}" run harness --` : 'npm run harness --'
   return `${npm}${home} ${args}`
 }

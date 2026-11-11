@@ -30,6 +30,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
 import type { Agent, AgentLimits, McpServerView, ProviderConfig } from '@midgaard/contracts'
 import { ApiError, fetchAgents, fetchMcpServers, fetchProviders, setAgentLimits, setAgentMcp, updateAgent } from '@/lib/api'
+import { useHarnessCommand } from '@/lib/advice'
 import { disabledReason } from '@/lib/agents'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
@@ -52,6 +53,7 @@ interface Loaded {
  */
 export function AgentsCard({ editable = false }: { editable?: boolean }) {
   const [data, setData] = useState<Loaded | null>(null)
+  const harness = useHarnessCommand()
 
   const load = useCallback(() => {
     let abandoned = false
@@ -120,9 +122,9 @@ export function AgentsCard({ editable = false }: { editable?: boolean }) {
                       <a className="underline" href="#/agents" data-testid={`agent-${agent.id}-add-provider`}>
                         Profils → Fournisseurs
                       </a>
-                      , ou dans un terminal, à la racine du dépôt :{' '}
+                      , ou {harness.where} :{' '}
                       <code className="rounded bg-canvas px-1 font-mono">
-                        npm run harness -- providers add venice --model deepseek-v4-flash-0731
+                        {harness.prefix} providers add venice --model deepseek-v4-flash-0731
                       </code>
                     </>
                   )}

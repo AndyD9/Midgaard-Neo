@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Task } from '@midgaard/contracts'
 import { useHarness } from '@/lib/useHarness'
+import { DEFAULT_HARNESS_COMMAND, HarnessCommandContext } from '@/lib/advice'
 import { cn } from '@/lib/utils'
 import { McpServersCard } from './components/McpServersCard'
 import { ProvidersCard } from './components/ProvidersCard'
@@ -160,6 +161,7 @@ export function App() {
   const shown: Mode = mode === 'browser' && browsers.length === 0 ? 'flux' : mode
 
   return (
+    <HarnessCommandContext.Provider value={state.health?.harness_command ?? DEFAULT_HARNESS_COMMAND}>
     <div className="flex h-full flex-col">
       <StatusBar status={state.status} health={state.health} error={state.error} gap={state.gap} />
 
@@ -240,6 +242,7 @@ export function App() {
         </main>
       </div>
     </div>
+    </HarnessCommandContext.Provider>
   )
 }
 

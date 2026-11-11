@@ -148,6 +148,14 @@ export const healthSchema = z.object({
    * oisif, et s'en sert sinon : voir `ensureDaemon`.
    */
   install: z.object({ dir: z.string(), version: z.string() }),
+  /**
+   * Le début d'une commande `harness` pour cette installation, tel que
+   * `harnessCommand` l'écrit : `npm run harness --` depuis un clone, le
+   * lanceur embarqué dans l'application autonome, suivi de `--home` s'il est
+   * désigné. Le dashboard s'en sert pour les commandes qu'il cite ; facultatif,
+   * un daemon plus ancien du même protocole ne l'annonce pas.
+   */
+  harness_command: z.string().optional(),
 })
 export type Health = z.infer<typeof healthSchema>
 

@@ -23,6 +23,8 @@
     "desktop": "node --conditions=midgaard-dev packages/cli/src/main.ts desktop",
     "desktop:build": "cargo build --release --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "test:desktop": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml",
+    "desktop:stage": "node apps/desktop/scripts/stage.mjs",
+    "test:standalone": "node --conditions=midgaard-dev tests/standalone.ts",
     "daemon": "node --conditions=midgaard-dev packages/daemon/src/main.ts",
     "dashboard:dev": "npm run dev --workspace @midgaard/dashboard",
     "typecheck": "tsc -b && tsc -p apps/dashboard --noEmit",

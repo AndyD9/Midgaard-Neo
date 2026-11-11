@@ -27,6 +27,7 @@ import { createServer, type Server } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import {
   PROTOCOL_VERSION,
+  harnessCommand,
   readRuntime,
   removeRuntime,
   writeRuntime,
@@ -238,6 +239,12 @@ export async function startDaemon(config: HarnessConfig, options: StartOptions =
       config.idleShutdownMs === 0 ? null : Math.max(0, lastActivity + config.idleShutdownMs - Date.now()),
     db_path: config.dbPath,
     install,
+    // Lue au dashboard, donc hors d'un terminal ouvert dans le clone : le
+    // dossier runtime désigné et le lanceur de l'application autonome y sont.
+    harness_command: harnessCommand('', {
+      home: config.homeIsExplicit ? config.home : null,
+      launcher: config.launcher,
+    }).trimEnd(),
   })
 
   const stream = new EventStream({ store, bus, security: () => security, health, log, touch })
